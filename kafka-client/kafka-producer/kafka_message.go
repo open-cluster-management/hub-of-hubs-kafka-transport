@@ -15,10 +15,11 @@ func (b *KMBuilder) Build() *kafka.Message {
 }
 
 // Topic sets the message's topic and destination partition ID.
-func (b *KMBuilder) Topic(topic *string, partitionId int32) *KMBuilder {
+func (b *KMBuilder) Topic(topic *string, partitionID int32) *KMBuilder {
 	b.m.TopicPartition = kafka.TopicPartition{
 		Topic:     topic,
-		Partition: partitionId}
+		Partition: partitionID,
+	}
 
 	return b
 }
