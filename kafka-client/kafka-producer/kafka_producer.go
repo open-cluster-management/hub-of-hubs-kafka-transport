@@ -1,7 +1,6 @@
 package kafkaproducer
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,7 +23,6 @@ var (
 	errEnvVarNotFound         = errors.New("not found environment variable")
 	errFailedToCreateProducer = errors.New("failed to create kafka producer")
 	errFailedToSendMessage    = errors.New("failed to send message")
-	errMessageNotFound        = errors.New("message not found")
 )
 
 // NewKafkaProducer returns a new instance of KafkaProducer object.
@@ -47,10 +45,7 @@ type KafkaProducer struct {
 	key           []byte
 	kafkaProducer *kafka.Producer
 	deliveryChan  chan kafka.Event
-
-	topic          string
-	hosts          string
-	caFileLocation string
+	topic         string
 }
 
 func createKafkaProducer() (*kafka.Producer, string, string, error) {
@@ -140,23 +135,4 @@ func (p *KafkaProducer) ProduceAsync(msg *[]byte) error {
 	}
 
 	return nil
-}
-
-func (p *KafkaProducer) GetMessage(msgID string, msgType string) ([]byte, error) {
-	bic, err := newBackwardsIteratorConsumer(p.hosts, p.topic, p.caFileLocation)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errMessageNotFound, err)
-	}
-
-	msg, err := bic.findMessage(msgID, msgType)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errMessageNotFound, err)
-	}
-
-	msgBytes, err := json.Marshal(*msg)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errMessageNotFound, err)
-	}
-
-	return msgBytes, nil
 }
