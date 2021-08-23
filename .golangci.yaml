@@ -4,4 +4,7 @@ linters:
     - nlreturn
     - exhaustivestruct
     - godox
-    - cyclop
+
+linters-settings:
+  gocyclo:
+    min-complexity: 11 # minimal code complexity to report, go-report-card uses 15.

@@ -16,13 +16,11 @@ import (
 )
 
 const (
-	// required env vars.
 	envVarKafkaConsumerID    = "KAFKA_CONSUMER_ID"
 	envVarKafkaConsumerHosts = "KAFKA_CONSUMER_HOSTS"
-
-	// pre-set env vars.
 	envVarKafkaConsumerSSLCA = "KAFKA_SSL_CA"
 	envVarKafkaConsumerTopic = "KAFKA_CONSUMER_TOPIC"
+	pollTimeoutMs            = 100
 )
 
 var (
@@ -164,7 +162,7 @@ func (c *KafkaConsumer) Subscribe() error {
 				c.log.Info("stopped listening", "topics", c.topics)
 
 			default:
-				ev := c.kafkaConsumer.Poll(100)
+				ev := c.kafkaConsumer.Poll(pollTimeoutMs)
 				if ev == nil {
 					continue
 				}
