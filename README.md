@@ -19,6 +19,12 @@ To use the producer/consumer wrappers provided, the following environment variab
     $ export KAFKA_SSL_CA=$(cat PATH_TO_CA | base64 -w 0)
     ```
 
+3. Set the `KAFKA_MESSAGE_SIZE_LIMIT_KB` environment variable to hold the maximum allowed message size in kilobytes 
+(not above ~900).
+    ```
+    $ export KAFKA_MESSAGE_SIZE_LIMIT_KB=...
+    ```
+
 ### When using kafka-producer:
 1. Set the `KAFKA_PRODUCER_ID` environment variable to hold the name of the producer.
     ```
