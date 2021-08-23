@@ -1,13 +1,18 @@
 package kafkaconsumer
 
 import (
+	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/go-logr/logr"
 	kafkaclient "github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client"
+	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
 const (
@@ -24,37 +29,55 @@ var (
 	errEnvVarNotFound         = errors.New("not found environment variable")
 	errFailedToCreateConsumer = errors.New("failed to create kafka consumer")
 	errFailedToSubscribe      = errors.New("failed to subscribe to topic")
+	errHeaderNotFound         = errors.New("required message header not found")
+	errHeaderIllegalValue     = errors.New("message header has an illegal value")
 )
 
 // NewKafkaConsumer returns a new instance of KafkaConsumer object.
 func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsumer, error) {
-	c, topic, err := createKafkaConsumer()
+	c, topics, err := createKafkaConsumer()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errFailedToCreateConsumer, err)
 	}
 
+	// create context for sub-routines
+	ctx, cancelContext := context.WithCancel(context.Background())
+
+	// create channel for passing received bundle fragments
+	fragmentInfoChan := make(chan *kafkaMessageFragmentsInfo)
+
+	// create fragments handler
+	messageAssembler := newKafkaMessageAssembler(log, fragmentInfoChan, msgChan)
+	messageAssembler.Start(ctx)
+
 	return &KafkaConsumer{
-		kafkaConsumer: c,
-		topic:         topic,
-		msgChan:       msgChan,
-		stopChan:      make(chan struct{}, 1),
-		log:           log,
+		log:              log,
+		kafkaConsumer:    c,
+		messageAssembler: messageAssembler,
+		topics:           topics,
+		msgChan:          msgChan,
+		fragmentInfoChan: fragmentInfoChan,
+		ctx:              ctx,
+		cancelContext:    cancelContext,
 	}, nil
 }
 
 // KafkaConsumer abstracts Confluent Kafka usage.
 type KafkaConsumer struct {
-	kafkaConsumer *kafka.Consumer
-	topic         string
-	msgChan       chan *kafka.Message
-	stopChan      chan struct{}
-	log           logr.Logger
+	log              logr.Logger
+	kafkaConsumer    *kafka.Consumer
+	messageAssembler *kafkaMessageAssembler
+	topics           []string
+	msgChan          chan *kafka.Message
+	fragmentInfoChan chan *kafkaMessageFragmentsInfo
+	ctx              context.Context
+	cancelContext    context.CancelFunc
 }
 
-func createKafkaConsumer() (*kafka.Consumer, string, error) {
-	clientID, hosts, topic, ca, err := readEnvVars()
+func createKafkaConsumer() (*kafka.Consumer, []string, error) {
+	clientID, hosts, topics, ca, err := readEnvVars()
 	if err != nil {
-		return nil, "", fmt.Errorf("%w", err)
+		return nil, nil, fmt.Errorf("%w", err)
 	}
 
 	if ca != "" {
@@ -68,10 +91,10 @@ func createKafkaConsumer() (*kafka.Consumer, string, error) {
 			"enable.auto.commit": "false",
 		})
 		if err != nil {
-			return nil, "", fmt.Errorf("%w", err)
+			return nil, nil, fmt.Errorf("%w", err)
 		}
 
-		return c, topic, nil
+		return c, topics, nil
 	}
 
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
@@ -82,42 +105,42 @@ func createKafkaConsumer() (*kafka.Consumer, string, error) {
 		"enable.auto.commit": "false",
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("%w", err)
+		return nil, nil, fmt.Errorf("%w", err)
 	}
 
-	return c, topic, nil
+	return c, topics, nil
 }
 
-func readEnvVars() (string, string, string, string, error) {
+func readEnvVars() (string, string, []string, string, error) {
 	id, found := os.LookupEnv(envVarKafkaConsumerID)
 	if !found {
-		return "", "", "", "",
+		return "", "", nil, "",
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerID)
 	}
 
 	hosts, found := os.LookupEnv(envVarKafkaConsumerHosts)
 	if !found {
-		return "", "", "", "",
+		return "", "", nil, "",
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerHosts)
 	}
 
-	topic, found := os.LookupEnv(envVarKafkaConsumerTopic)
+	topicString, found := os.LookupEnv(envVarKafkaConsumerTopic)
 	if !found {
-		return "", "", "", "",
+		return "", "", nil, "",
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerTopic)
 	}
 
+	topics := strings.Split(topicString, ",")
+
 	ca := os.Getenv(envVarKafkaConsumerSSLCA)
 
-	return id, hosts, topic, ca, nil
+	return id, hosts, topics, ca, nil
 }
 
 // Close closes the KafkaConsumer.
 func (c *KafkaConsumer) Close() {
 	_ = c.kafkaConsumer.Close()
-
-	c.stopChan <- struct{}{}
-	close(c.stopChan)
+	c.cancelContext()
 }
 
 // Consumer returns the wrapped Confluent KafkaConsumer member.
@@ -127,29 +150,113 @@ func (c *KafkaConsumer) Consumer() *kafka.Consumer {
 
 // Subscribe starts subscription to the set topic.
 func (c *KafkaConsumer) Subscribe() error {
-	if err := c.kafkaConsumer.Subscribe(c.topic, nil); err != nil {
+	if err := c.kafkaConsumer.SubscribeTopics(c.topics, nil); err != nil {
 		return fmt.Errorf("%w: %v", errFailedToSubscribe, err)
 	}
 
-	c.log.Info("started listening", "Topic", c.topic)
+	c.log.Info("started listening", "topics", c.topics)
 
 	go func() {
 		for {
 			select {
-			case <-c.stopChan:
+			case <-c.ctx.Done():
 				_ = c.kafkaConsumer.Unsubscribe()
+				c.log.Info("stopped listening", "topics", c.topics)
 
-				return
 			default:
-				if msg, readErr := c.kafkaConsumer.ReadMessage(-1); readErr == nil {
-					c.msgChan <- msg
-				} else {
-					c.log.Error(readErr, "failed to read message")
+				ev := c.kafkaConsumer.Poll(100)
+				if ev == nil {
 					continue
+				}
+
+				switch msg := ev.(type) {
+				case *kafka.Message:
+					frag := c.messageIsFragment(msg)
+					if frag == nil {
+						c.msgChan <- msg
+						continue
+					}
+
+					// wrap in fragment-info
+					fragInfo, err := c.createFragmentInfo(msg, frag)
+					if err != nil {
+						c.log.Error(err, "failed to read message",
+							"topic", msg.TopicPartition.Topic)
+
+						continue
+					}
+
+					c.fragmentInfoChan <- fragInfo
+				case kafka.Error:
+					c.log.Info("kafka read error", "code", msg.Code(), "error", msg.Error())
 				}
 			}
 		}
 	}()
 
 	return nil
+}
+
+func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) *kafkaMessageFragment {
+	offsetHeader, offsetFound := c.lookupHeader(msg, types.HeaderOffsetKey)
+	_, sizeFound := c.lookupHeader(msg, types.HeaderSizeKey)
+
+	if !(offsetFound && sizeFound) {
+		return nil
+	}
+
+	return &kafkaMessageFragment{
+		offset: binary.BigEndian.Uint32(offsetHeader.Value),
+		bytes:  msg.Value,
+	}
+}
+
+func (c *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kafka.Header, bool) {
+	for _, header := range msg.Headers {
+		if header.Key == headerKey {
+			return &header, true
+		}
+	}
+
+	return nil, false
+}
+
+func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
+	fragment *kafkaMessageFragment) (*kafkaMessageFragmentsInfo, error) {
+	msgIDHeader, found := c.lookupHeader(msg, types.MsgIDKey)
+	if !found {
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
+	}
+
+	msgTypeHeader, found := c.lookupHeader(msg, types.MsgTypeKey)
+	if !found {
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
+	}
+
+	timestampHeader, found := c.lookupHeader(msg, types.HeaderDismantlingTimestamp)
+	if !found {
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.HeaderDismantlingTimestamp)
+	}
+
+	sizeHeader, found := c.lookupHeader(msg, types.HeaderSizeKey)
+	if !found {
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.HeaderSizeKey)
+	}
+
+	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
+
+	timestamp, err := time.Parse(time.RFC3339, string(timestampHeader.Value))
+	if err != nil {
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderIllegalValue, types.HeaderDismantlingTimestamp)
+	}
+
+	size := binary.BigEndian.Uint32(sizeHeader.Value)
+
+	return &kafkaMessageFragmentsInfo{
+		key:                  key,
+		totalSize:            size,
+		dismantlingTimestamp: timestamp,
+		fragment:             fragment,
+		kafkaMessage:         msg,
+	}, nil
 }

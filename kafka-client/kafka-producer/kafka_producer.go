@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	kafkaclient "github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client"
+	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
 const (
@@ -16,27 +18,33 @@ const (
 	envVarKafkaProducerSSLCA = "KAFKA_SSL_CA"
 	envVarKafkaProducerTopic = "KAFKA_PRODUCER_TOPIC"
 	envVarKafkaProducerAcks  = "KAFKA_PRODUCER_ACKS"
+	envVarMessageSizeLimit   = "KAFKA_MESSAGE_SIZE_LIMIT_KB"
 	producerFlushPeriod      = 5 * int(time.Second)
+	messageSizeLimitUnitSize = 1000
 )
 
 var (
 	errEnvVarNotFound         = errors.New("not found environment variable")
+	errEnvVarIllegalValue     = errors.New("environment variable illegal value")
 	errFailedToCreateProducer = errors.New("failed to create kafka producer")
 	errFailedToSendMessage    = errors.New("failed to send message")
 )
 
 // NewKafkaProducer returns a new instance of KafkaProducer object.
 func NewKafkaProducer(delChan chan kafka.Event) (*KafkaProducer, error) {
-	p, clientID, topic, err := createKafkaProducer()
+	p, clientID, hosts, topic, certFileLocation, sizeLimit, err := createKafkaProducer()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errFailedToCreateProducer, err)
 	}
 
 	return &KafkaProducer{
-		key:           []byte(clientID),
-		kafkaProducer: p,
-		topic:         topic,
-		deliveryChan:  delChan,
+		key:              []byte(clientID),
+		kafkaProducer:    p,
+		deliveryChan:     delChan,
+		messageSizeLimit: sizeLimit,
+		topic:            topic,
+		hosts:            hosts,
+		caFileLocation:   certFileLocation,
 	}, nil
 }
 
@@ -45,28 +53,34 @@ type KafkaProducer struct {
 	key           []byte
 	kafkaProducer *kafka.Producer
 	deliveryChan  chan kafka.Event
-	topic         string
+	// message size limit in bytes
+	messageSizeLimit int
+	topic            string
+	hosts            string
+	caFileLocation   string
 }
 
-func createKafkaProducer() (*kafka.Producer, string, string, error) {
-	clientID, hosts, topic, acks, ca, err := readEnvVars()
+func createKafkaProducer() (*kafka.Producer, string, string, string, string, int, error) {
+	clientID, hosts, topic, acks, ca, sizeLimit, err := readEnvVars()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%w", err)
+		return nil, "", "", "", "", 0, fmt.Errorf("%w", err)
 	}
 
 	if ca != "" {
+		certFileLocation := kafkaclient.GetCertificate(&ca)
+
 		p, err := kafka.NewProducer(&kafka.ConfigMap{
 			"bootstrap.servers": hosts,
 			"security.protocol": "ssl",
-			"ssl.ca.location":   kafkaclient.GetCertificate(&ca),
+			"ssl.ca.location":   certFileLocation,
 			"client.id":         clientID,
 			"acks":              acks,
 		})
 		if err != nil {
-			return nil, "", "", fmt.Errorf("%w", err)
+			return nil, "", "", "", "", 0, fmt.Errorf("%w", err)
 		}
 
-		return p, clientID, topic, nil
+		return p, clientID, hosts, topic, certFileLocation, sizeLimit, nil
 	}
 
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
@@ -75,28 +89,28 @@ func createKafkaProducer() (*kafka.Producer, string, string, error) {
 		"acks":              acks,
 	})
 	if err != nil {
-		return nil, "", "", fmt.Errorf("%w", err)
+		return nil, "", "", "", "", 0, fmt.Errorf("%w", err)
 	}
 
-	return p, clientID, topic, nil
+	return p, clientID, hosts, topic, "", sizeLimit, nil
 }
 
-func readEnvVars() (string, string, string, string, string, error) {
+func readEnvVars() (string, string, string, string, string, int, error) {
 	id, found := os.LookupEnv(envVarKafkaProducerID)
 	if !found {
-		return "", "", "", "", "",
+		return "", "", "", "", "", 0,
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaProducerID)
 	}
 
 	hosts, found := os.LookupEnv(envVarKafkaProducerHosts)
 	if !found {
-		return "", "", "", "", "",
+		return "", "", "", "", "", 0,
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaProducerHosts)
 	}
 
 	topic, found := os.LookupEnv(envVarKafkaProducerTopic)
 	if !found {
-		return "", "", "", "", "",
+		return "", "", "", "", "", 0,
 			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaProducerTopic)
 	}
 
@@ -105,14 +119,26 @@ func readEnvVars() (string, string, string, string, string, error) {
 		acks = "1"
 	}
 
+	sizeLimitString, found := os.LookupEnv(envVarMessageSizeLimit)
+	if !found {
+		return "", "", "", "", "", 0,
+			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarMessageSizeLimit)
+	}
+
+	sizeLimit, err := strconv.Atoi(sizeLimitString)
+	if err != nil {
+		return "", "", "", "", "", 0,
+			fmt.Errorf("%w: %s", errEnvVarIllegalValue, envVarMessageSizeLimit)
+	}
+
 	ca := os.Getenv(envVarKafkaProducerSSLCA)
 
-	return id, hosts, topic, acks, ca, nil
+	return id, hosts, topic, acks, ca, sizeLimit * messageSizeLimitUnitSize, nil
 }
 
 // Close closes the KafkaProducer.
 func (p *KafkaProducer) Close() {
-	p.kafkaProducer.Flush(producerFlushPeriod) // give the kafka-producer 5 secs to send all
+	p.kafkaProducer.Flush(producerFlushPeriod) // give the kafka-producer a chance to finish sending
 	p.kafkaProducer.Close()
 }
 
@@ -122,13 +148,30 @@ func (p *KafkaProducer) Producer() *kafka.Producer {
 }
 
 // ProduceAsync sends a message to the kafka brokers asynchronously.
-func (p *KafkaProducer) ProduceAsync(msg *[]byte) error {
-	builder := &KMBuilder{}
+func (p *KafkaProducer) ProduceAsync(msg []byte, msgID []byte, msgType []byte, msgVersion []byte) error {
+	if len(msg) > p.messageSizeLimit {
+		if err := dismantleAndSendKafkaMessage(p, msgID, msgType, msg); err != nil {
+			return fmt.Errorf("%w: %v", errFailedToSendMessage, err)
+		}
+
+		return nil
+	}
+
+	builder := &KafkaMessageBuilder{}
 
 	if err := p.kafkaProducer.Produce(builder.
 		Topic(&p.topic, kafka.PartitionAny).
-		Key(&p.key).
+		Key(p.key).
 		Payload(msg).
+		Header(kafka.Header{
+			Key: types.MsgIDKey, Value: msgID,
+		}).
+		Header(kafka.Header{
+			Key: types.MsgTypeKey, Value: msgType,
+		}).
+		Header(kafka.Header{
+			Key: types.MsgVersionKey, Value: msgVersion,
+		}).
 		Build(),
 		p.deliveryChan); err != nil {
 		return fmt.Errorf("%w: %v", errFailedToSendMessage, err)

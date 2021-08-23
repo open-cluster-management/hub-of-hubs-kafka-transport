@@ -4,3 +4,4 @@ linters:
     - nlreturn
     - exhaustivestruct
     - godox
+    - cyclop
