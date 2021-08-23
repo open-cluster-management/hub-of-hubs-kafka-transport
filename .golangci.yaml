@@ -6,5 +6,5 @@ linters:
     - godox
 
 linters-settings:
-  gocyclo:
-    min-complexity: 11 # minimal code complexity to report, go-report-card uses 15.
+  cyclop:
+    max-complexity: 15 # minimal code complexity to report, go-report-card uses 15.
