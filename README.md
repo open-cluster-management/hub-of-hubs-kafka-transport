@@ -36,6 +36,12 @@ To use the producer/consumer wrappers provided, the following environment variab
     $ export KAFKA_PRODUCER_TOPIC=...
     ```
    
+1. Set the `KAFKA_MESSAGE_SIZE_LIMIT_KB` environment variable to hold the maximum allowed message size in kilobytes 
+(not above ~900).
+    ```
+    $ export KAFKA_MESSAGE_SIZE_LIMIT_KB=...
+    ```
+    
 ### When using kafka-consumer:
 1.  Set the `KAFKA_CONSUMER_ID` environment variable to hold the name of the consumer's group.
     ```
