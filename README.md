@@ -2,6 +2,8 @@
 
 # Hub-of-Hubs-Kafka-Transport
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/open-cluster-management/hub-of-hubs-kafka-transport)](https://goreportcard.com/report/github.com/open-cluster-management/hub-of-hubs-kafka-transport)
+
 The kafka-transport component of [Hub-of-Hubs](https://github.com/open-cluster-management/hub-of-hubs).
 
 This repo is a **work in progress** that serves as a general base for the ongoing hub-of-hubs integration of Kafka as transport.
