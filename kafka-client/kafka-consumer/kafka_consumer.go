@@ -137,8 +137,8 @@ func readEnvVars() (string, string, []string, string, error) {
 
 // Close closes the KafkaConsumer.
 func (c *KafkaConsumer) Close() {
-	_ = c.kafkaConsumer.Close()
 	c.cancelContext()
+	_ = c.kafkaConsumer.Close()
 }
 
 // Consumer returns the wrapped Confluent KafkaConsumer member.
