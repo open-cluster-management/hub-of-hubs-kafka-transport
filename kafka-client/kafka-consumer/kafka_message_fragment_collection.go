@@ -17,6 +17,8 @@ func newKafkaMessageFragmentsCollection(size uint32, timestamp time.Time) *kafka
 		dismantlingTimestamp:     timestamp,
 		messageFragments:         make(map[uint32]*kafkaMessageFragment),
 		latestKafkaMessage:       nil,
+		highestOffset:            0,
+		lowestOffset:             -1,
 		lock:                     sync.Mutex{},
 	}
 }
@@ -29,6 +31,8 @@ type kafkaMessageFragmentsCollection struct {
 	messageFragments         map[uint32]*kafkaMessageFragment
 
 	latestKafkaMessage *kafka.Message
+	highestOffset      kafka.Offset
+	lowestOffset       kafka.Offset
 	lock               sync.Mutex
 }
 
@@ -38,8 +42,8 @@ type kafkaMessageFragment struct {
 	bytes  []byte
 }
 
-// kafkaMessageFragmentsInfo wraps a fragment with info to pass in channels.
-type kafkaMessageFragmentsInfo struct {
+// kafkaMessageFragmentInfo wraps a fragment with info to pass in channels.
+type kafkaMessageFragmentInfo struct {
 	key                  string
 	totalSize            uint32
 	dismantlingTimestamp time.Time
@@ -47,7 +51,7 @@ type kafkaMessageFragmentsInfo struct {
 	kafkaMessage         *kafka.Message
 }
 
-func (fc *kafkaMessageFragmentsCollection) AddFragment(fragInfo *kafkaMessageFragmentsInfo) {
+func (fc *kafkaMessageFragmentsCollection) AddFragment(fragInfo *kafkaMessageFragmentInfo) {
 	fc.lock.Lock()
 	defer fc.lock.Unlock()
 
@@ -63,10 +67,14 @@ func (fc *kafkaMessageFragmentsCollection) AddFragment(fragInfo *kafkaMessageFra
 	// update accumulated size.
 	fc.accumulatedFragmentsSize += uint32(len(fragInfo.fragment.bytes))
 
-	// update freshest kafka message if needed.
-	if fc.latestKafkaMessage == nil ||
-		fragInfo.kafkaMessage.TopicPartition.Offset >= fc.latestKafkaMessage.TopicPartition.Offset {
+	// update offsets.
+	if fragInfo.kafkaMessage.TopicPartition.Offset >= fc.highestOffset {
 		fc.latestKafkaMessage = fragInfo.kafkaMessage
+		fc.highestOffset = fragInfo.kafkaMessage.TopicPartition.Offset
+	}
+
+	if fc.lowestOffset == -1 || fragInfo.kafkaMessage.TopicPartition.Offset <= fc.lowestOffset {
+		fc.lowestOffset = fragInfo.kafkaMessage.TopicPartition.Offset
 	}
 }
 

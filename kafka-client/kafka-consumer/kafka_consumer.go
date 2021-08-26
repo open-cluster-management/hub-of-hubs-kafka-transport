@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	envVarKafkaConsumerID    = "KAFKA_CONSUMER_ID"
-	envVarKafkaConsumerHosts = "KAFKA_CONSUMER_HOSTS"
-	envVarKafkaConsumerSSLCA = "KAFKA_SSL_CA"
-	envVarKafkaConsumerTopic = "KAFKA_CONSUMER_TOPIC"
-	pollTimeoutMs            = 100
+	envVarKafkaConsumerID         = "KAFKA_CONSUMER_ID"
+	envVarKafkaConsumerHosts      = "KAFKA_CONSUMER_HOSTS"
+	envVarKafkaConsumerSSLCA      = "KAFKA_SSL_CA"
+	envVarKafkaConsumerTopic      = "KAFKA_CONSUMER_TOPIC"
+	pollTimeoutMs                 = 100
+	assemblerBufferedChannelsSize = 100
 )
 
 var (
@@ -29,6 +30,7 @@ var (
 	errFailedToSubscribe      = errors.New("failed to subscribe to topic")
 	errHeaderNotFound         = errors.New("required message header not found")
 	errHeaderIllegalValue     = errors.New("message header has an illegal value")
+	errCommitRejected         = errors.New("commit rejected")
 )
 
 // NewKafkaConsumer returns a new instance of KafkaConsumer object.
@@ -42,7 +44,7 @@ func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsu
 	ctx, cancelContext := context.WithCancel(context.Background())
 
 	// create channel for passing received bundle fragments
-	fragmentInfoChan := make(chan *kafkaMessageFragmentsInfo)
+	fragmentInfoChan := make(chan *kafkaMessageFragmentInfo, assemblerBufferedChannelsSize)
 
 	// create fragments handler
 	messageAssembler := newKafkaMessageAssembler(log, fragmentInfoChan, msgChan)
@@ -67,7 +69,7 @@ type KafkaConsumer struct {
 	messageAssembler *kafkaMessageAssembler
 	topics           []string
 	msgChan          chan *kafka.Message
-	fragmentInfoChan chan *kafkaMessageFragmentsInfo
+	fragmentInfoChan chan *kafkaMessageFragmentInfo
 	ctx              context.Context
 	cancelContext    context.CancelFunc
 }
@@ -169,14 +171,14 @@ func (c *KafkaConsumer) Subscribe() error {
 
 				switch msg := ev.(type) {
 				case *kafka.Message:
-					frag := c.messageIsFragment(msg)
-					if frag == nil {
+					fragment, msgIsFragment := c.messageIsFragment(msg)
+					if !msgIsFragment {
 						c.msgChan <- msg
 						continue
 					}
 
 					// wrap in fragment-info
-					fragInfo, err := c.createFragmentInfo(msg, frag)
+					fragInfo, err := c.createFragmentInfo(msg, fragment)
 					if err != nil {
 						c.log.Error(err, "failed to read message",
 							"topic", msg.TopicPartition.Topic)
@@ -195,18 +197,44 @@ func (c *KafkaConsumer) Subscribe() error {
 	return nil
 }
 
-func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) *kafkaMessageFragment {
+// Commit commits a kafka message.
+func (c *KafkaConsumer) Commit(msg *kafka.Message) error {
+	msgIDHeader, found := c.lookupHeader(msg, types.MsgIDKey)
+	if !found {
+		return fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
+	}
+
+	msgTypeHeader, found := c.lookupHeader(msg, types.MsgTypeKey)
+	if !found {
+		return fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
+	}
+
+	// if a consumer client is attempting to commit a message then it's safe to assume that the message was processed.
+	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
+	if !c.messageAssembler.CanCommitMessage(key, msg) {
+		return fmt.Errorf("%w : %s", errCommitRejected, "message is an assembled collection that succeeds "+
+			"other unprocessed fragments")
+	}
+
+	if _, err := c.kafkaConsumer.CommitMessage(msg); err != nil {
+		return fmt.Errorf("%w", err)
+	}
+
+	return nil
+}
+
+func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFragment, bool) {
 	offsetHeader, offsetFound := c.lookupHeader(msg, types.HeaderOffsetKey)
 	_, sizeFound := c.lookupHeader(msg, types.HeaderSizeKey)
 
 	if !(offsetFound && sizeFound) {
-		return nil
+		return nil, false
 	}
 
 	return &kafkaMessageFragment{
 		offset: binary.BigEndian.Uint32(offsetHeader.Value),
 		bytes:  msg.Value,
-	}
+	}, true
 }
 
 func (c *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kafka.Header, bool) {
@@ -220,7 +248,7 @@ func (c *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kaf
 }
 
 func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
-	fragment *kafkaMessageFragment) (*kafkaMessageFragmentsInfo, error) {
+	fragment *kafkaMessageFragment) (*kafkaMessageFragmentInfo, error) {
 	msgIDHeader, found := c.lookupHeader(msg, types.MsgIDKey)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
@@ -250,7 +278,7 @@ func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 
 	size := binary.BigEndian.Uint32(sizeHeader.Value)
 
-	return &kafkaMessageFragmentsInfo{
+	return &kafkaMessageFragmentInfo{
 		key:                  key,
 		totalSize:            size,
 		dismantlingTimestamp: timestamp,
