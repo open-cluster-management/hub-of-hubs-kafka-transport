@@ -26,7 +26,7 @@ func dismantleAndSendKafkaMessage(producer *KafkaProducer,
 
 		messageBuilder := &KafkaMessageBuilder{}
 		kafkaMessage := messageBuilder.
-			Topic(&producer.topic, kafka.PartitionAny).
+			Topic(&producer.topic, producer.partition).
 			Key(messageKeyBytes).
 			Payload(chunk).
 			Header(kafka.Header{
