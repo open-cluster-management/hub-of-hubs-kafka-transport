@@ -99,6 +99,9 @@ func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
 		"collection key", key,
 		"collection size (bytes)", collection.totalMessageSize,
 		"fragments count", fragmentsCount)
+
+	// release fragments but keep collection info for commit
+	collection.messageFragments = nil
 }
 
 func (assembler *kafkaMessageAssembler) checkIfCollectionCanBeCommitted(startOffset, endOffset kafka.Offset,
