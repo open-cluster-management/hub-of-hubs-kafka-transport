@@ -31,6 +31,11 @@ To use the producer/consumer wrappers provided, the following environment variab
     ```
     $ export KAFKA_PRODUCER_TOPIC=...
     ```
+
+1. Set the `KAFKA_PRODUCER_PARTITION` environment variable to hold the number of the partition to send to.
+    ```
+    $ export KAFKA_PRODUCER_PARTITION=...
+    ```
    
 1. Set the `KAFKA_MESSAGE_SIZE_LIMIT_KB` environment variable to hold the maximum allowed message size in kilobytes 
 (not above ~900).
