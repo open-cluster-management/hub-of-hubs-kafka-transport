@@ -79,7 +79,7 @@ func (assembler *kafkaMessageAssembler) CanCommitMessage(key string, message *ka
 			message.TopicPartition.Partition)
 	}
 
-	// key is not found then this is a processed collection / a regular message. treat is like a point
+	// key is not found then this is a processed collection / a regular message. treat it like a point
 	return assembler.checkIfCollectionCanBeCommitted(message.TopicPartition.Offset, message.TopicPartition.Offset,
 		message.TopicPartition.Partition)
 }

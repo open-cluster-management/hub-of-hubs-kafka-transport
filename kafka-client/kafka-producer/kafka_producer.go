@@ -80,6 +80,7 @@ func createKafkaProducer() (*kafka.Producer, string, string, string, int32, stri
 			"ssl.ca.location":   certFileLocation,
 			"client.id":         clientID,
 			"acks":              acks,
+			"retries":           "0",
 		})
 		if err != nil {
 			return nil, "", "", "", 0, "", 0, fmt.Errorf("%w", err)
@@ -92,6 +93,7 @@ func createKafkaProducer() (*kafka.Producer, string, string, string, int32, stri
 		"bootstrap.servers": hosts,
 		"client.id":         clientID,
 		"acks":              acks,
+		"retries":           "0",
 	})
 	if err != nil {
 		return nil, "", "", "", 0, "", 0, fmt.Errorf("%w", err)
