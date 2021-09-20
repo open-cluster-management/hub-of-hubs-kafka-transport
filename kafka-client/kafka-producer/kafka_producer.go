@@ -9,7 +9,6 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	kafkaclient "github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client"
-	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
 const (
@@ -167,9 +166,9 @@ func (p *KafkaProducer) Producer() *kafka.Producer {
 }
 
 // ProduceAsync sends a message to the kafka brokers asynchronously.
-func (p *KafkaProducer) ProduceAsync(msg []byte, msgID []byte, msgType []byte, msgVersion []byte) error {
+func (p *KafkaProducer) ProduceAsync(msg []byte, headers []kafka.Header) error {
 	if len(msg) > p.messageSizeLimit {
-		if err := dismantleAndSendKafkaMessage(p, msgID, msgType, msg); err != nil {
+		if err := dismantleAndSendKafkaMessage(p, headers, msg); err != nil {
 			return fmt.Errorf("%w: %v", errFailedToSendMessage, err)
 		}
 
@@ -177,22 +176,17 @@ func (p *KafkaProducer) ProduceAsync(msg []byte, msgID []byte, msgType []byte, m
 	}
 
 	builder := &KafkaMessageBuilder{}
-
-	if err := p.kafkaProducer.Produce(builder.
+	kafkaMessageBuild := builder.
 		Topic(&p.topic, p.partition).
 		Key(p.key).
-		Payload(msg).
-		Header(kafka.Header{
-			Key: types.MsgIDKey, Value: msgID,
-		}).
-		Header(kafka.Header{
-			Key: types.MsgTypeKey, Value: msgType,
-		}).
-		Header(kafka.Header{
-			Key: types.MsgVersionKey, Value: msgVersion,
-		}).
-		Build(),
-		p.deliveryChan); err != nil {
+		Payload(msg)
+
+	// add headers
+	for _, header := range headers {
+		kafkaMessageBuild.Header(header)
+	}
+
+	if err := p.kafkaProducer.Produce(kafkaMessageBuild.Build(), p.deliveryChan); err != nil {
 		return fmt.Errorf("%w: %v", errFailedToSendMessage, err)
 	}
 

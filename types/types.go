@@ -7,8 +7,6 @@ const (
 	MsgIDKey = "id"
 	// MsgTypeKey is the common TransportMessage's MsgType tag.
 	MsgTypeKey = "msgType"
-	// MsgVersionKey is the common TransportMessage's Version tag.
-	MsgVersionKey = "version"
 
 	// HeaderSizeKey is the key used in total bundle size header.
 	HeaderSizeKey = "size"

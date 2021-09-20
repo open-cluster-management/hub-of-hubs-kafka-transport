@@ -13,8 +13,7 @@ const intSize = 4
 
 var errFailedToDismantleMessage = fmt.Errorf("failed to dismantle message")
 
-func dismantleAndSendKafkaMessage(producer *KafkaProducer,
-	msgID []byte, msgType []byte, payload []byte) error {
+func dismantleAndSendKafkaMessage(producer *KafkaProducer, headers []kafka.Header, payload []byte) error {
 	dismantlingTime := time.Now().Format(types.TimeFormat)
 	dismantlingTimeBytes := []byte(dismantlingTime)
 
@@ -25,16 +24,10 @@ func dismantleAndSendKafkaMessage(producer *KafkaProducer,
 		messageKeyBytes := []byte(messageKey)
 
 		messageBuilder := &KafkaMessageBuilder{}
-		kafkaMessage := messageBuilder.
+		kafkaMessageBuild := messageBuilder.
 			Topic(&producer.topic, producer.partition).
 			Key(messageKeyBytes).
 			Payload(chunk).
-			Header(kafka.Header{
-				Key: types.MsgTypeKey, Value: msgType,
-			}).
-			Header(kafka.Header{
-				Key: types.MsgIDKey, Value: msgID,
-			}).
 			Header(kafka.Header{
 				Key: types.HeaderSizeKey, Value: toByteArray(len(payload)),
 			}).
@@ -43,10 +36,13 @@ func dismantleAndSendKafkaMessage(producer *KafkaProducer,
 			}).
 			Header(kafka.Header{
 				Key: types.HeaderDismantlingTimestamp, Value: dismantlingTimeBytes,
-			}).
-			Build()
+			})
 
-		if err := producer.kafkaProducer.Produce(kafkaMessage, producer.deliveryChan); err != nil {
+		for _, header := range headers {
+			kafkaMessageBuild.Header(header)
+		}
+
+		if err := producer.kafkaProducer.Produce(kafkaMessageBuild.Build(), producer.deliveryChan); err != nil {
 			return fmt.Errorf("%w: %v", errFailedToDismantleMessage, err)
 		}
 	}
