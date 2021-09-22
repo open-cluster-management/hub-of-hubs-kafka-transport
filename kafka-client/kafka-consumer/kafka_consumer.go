@@ -162,6 +162,7 @@ func (c *KafkaConsumer) Subscribe() error {
 			case <-c.ctx.Done():
 				_ = c.kafkaConsumer.Unsubscribe()
 				c.log.Info("stopped listening", "topics", c.topics)
+				return
 
 			default:
 				ev := c.kafkaConsumer.Poll(pollTimeoutMs)
