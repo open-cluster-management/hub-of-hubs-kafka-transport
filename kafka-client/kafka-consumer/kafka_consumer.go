@@ -87,7 +87,7 @@ func createKafkaConsumer() (*kafka.Consumer, []string, error) {
 			"ssl.ca.location":    kafkaclient.GetCertificate(&ca),
 			"client.id":          clientID,
 			"group.id":           clientID,
-			"auto.offset.reset":  "latest",
+			"auto.offset.reset":  "earliest",
 			"enable.auto.commit": "false",
 		})
 		if err != nil {
@@ -101,7 +101,7 @@ func createKafkaConsumer() (*kafka.Consumer, []string, error) {
 		"bootstrap.servers":  hosts,
 		"client.id":          clientID,
 		"group.id":           clientID,
-		"auto.offset.reset":  "latest",
+		"auto.offset.reset":  "earliest",
 		"enable.auto.commit": "false",
 	})
 	if err != nil {
