@@ -98,7 +98,7 @@ func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
 	// update message offset: set it to that of the lowest (incomplete) collection's offset on partition, or to this
 	// collection's highest offset if it is the lowest on partition.
 	if lowestOffset := assembler.partitionLowestOffsetMap[partition]; lowestOffset != collection.lowestOffset {
-		collection.latestKafkaMessage.TopicPartition.Offset = lowestOffset - 1
+		collection.latestKafkaMessage.TopicPartition.Offset = lowestOffset
 	} else {
 		// update partition offset cache map
 		if newLowestOffset := assembler.findLowestOffsetOnPartition(partition); newLowestOffset < 0 {
@@ -130,7 +130,7 @@ func (assembler *kafkaMessageAssembler) FixMessageOffset(msg *kafka.Message) {
 		return
 	}
 	// fix offset so that it does not allow for unsafe committing after processing.
-	msg.TopicPartition.Offset = lowestOffsetOnPartition - 1
+	msg.TopicPartition.Offset = lowestOffsetOnPartition
 }
 
 func (assembler *kafkaMessageAssembler) findLowestOffsetOnPartition(partition int32) kafka.Offset {
