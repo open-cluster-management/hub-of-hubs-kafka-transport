@@ -30,7 +30,6 @@ var (
 	errFailedToSubscribe      = errors.New("failed to subscribe to topic")
 	errHeaderNotFound         = errors.New("required message header not found")
 	errHeaderIllegalValue     = errors.New("message header has an illegal value")
-	errCommitRejected         = errors.New("commit rejected")
 )
 
 // NewKafkaConsumer returns a new instance of KafkaConsumer object.
@@ -162,6 +161,7 @@ func (c *KafkaConsumer) Subscribe() error {
 			case <-c.ctx.Done():
 				_ = c.kafkaConsumer.Unsubscribe()
 				c.log.Info("stopped listening", "topics", c.topics)
+
 				return
 
 			default:
@@ -174,7 +174,10 @@ func (c *KafkaConsumer) Subscribe() error {
 				case *kafka.Message:
 					fragment, msgIsFragment := c.messageIsFragment(msg)
 					if !msgIsFragment {
+						// fix offset in-case msg landed on a partition with open fragment collections
+						c.messageAssembler.FixMessageOffset(msg)
 						c.msgChan <- msg
+
 						continue
 					}
 
@@ -200,23 +203,6 @@ func (c *KafkaConsumer) Subscribe() error {
 
 // Commit commits a kafka message.
 func (c *KafkaConsumer) Commit(msg *kafka.Message) error {
-	msgIDHeader, found := c.lookupHeader(msg, types.MsgIDKey)
-	if !found {
-		return fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
-	}
-
-	msgTypeHeader, found := c.lookupHeader(msg, types.MsgTypeKey)
-	if !found {
-		return fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
-	}
-
-	// if a consumer client is attempting to commit a message then it's safe to assume that the message was processed.
-	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
-	if !c.messageAssembler.CanCommitMessage(key, msg) {
-		return fmt.Errorf("%w : %s", errCommitRejected, "message is an assembled collection that succeeds "+
-			"other unprocessed fragments")
-	}
-
 	if _, err := c.kafkaConsumer.CommitMessage(msg); err != nil {
 		return fmt.Errorf("%w", err)
 	}
