@@ -55,7 +55,8 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 
 	fragmentCollectionMap, found := assembler.partitionFragmentCollectionMap[partition]
 	if !found {
-		assembler.partitionFragmentCollectionMap[partition] = make(map[string]*kafkaMessageFragmentsCollection)
+		fragmentCollectionMap = make(map[string]*kafkaMessageFragmentsCollection)
+		assembler.partitionFragmentCollectionMap[partition] = fragmentCollectionMap
 	}
 
 	fragCollection, found := fragmentCollectionMap[fragInfo.key]
