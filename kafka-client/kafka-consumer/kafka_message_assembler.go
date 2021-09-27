@@ -123,6 +123,9 @@ func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
 
 // FixMessageOffset corrects the offset of the received message so that it does not allow for unsafe committing.
 func (assembler *kafkaMessageAssembler) FixMessageOffset(msg *kafka.Message) {
+	assembler.lock.Lock()
+	defer assembler.lock.Unlock()
+
 	partition := msg.TopicPartition.Partition
 
 	lowestOffsetOnPartition, found := assembler.partitionLowestOffsetMap[partition]
