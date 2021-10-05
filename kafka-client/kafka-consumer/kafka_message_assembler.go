@@ -150,5 +150,9 @@ func (assembler *kafkaMessageAssembler) findLowestOffsetOnPartition(partition in
 		return -1
 	}
 
+	if lowest == math.MaxInt64 {
+		return -1
+	}
+
 	return lowest
 }
