@@ -34,7 +34,7 @@ var (
 
 // NewKafkaProducer returns a new instance of KafkaProducer object.
 func NewKafkaProducer(delChan chan kafka.Event) (*KafkaProducer, error) {
-	p, clientID, hosts, topic, partition, certFileLocation, sizeLimit, err := createKafkaProducer()
+	p, clientID, hosts, topic, partition, sizeLimit, err := createKafkaProducer()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", errFailedToCreateProducer, err)
 	}
@@ -47,7 +47,6 @@ func NewKafkaProducer(delChan chan kafka.Event) (*KafkaProducer, error) {
 		topic:            topic,
 		partition:        partition,
 		hosts:            hosts,
-		caFileLocation:   certFileLocation,
 	}, nil
 }
 
@@ -61,13 +60,12 @@ type KafkaProducer struct {
 	topic            string
 	partition        int32
 	hosts            string
-	caFileLocation   string
 }
 
-func createKafkaProducer() (*kafka.Producer, string, string, string, int32, string, int, error) {
+func createKafkaProducer() (*kafka.Producer, string, string, string, int32, int, error) {
 	clientID, hosts, topic, partition, acks, ca, sizeLimit, err := readEnvVars()
 	if err != nil {
-		return nil, "", "", "", 0, "", 0, fmt.Errorf("%w", err)
+		return nil, "", "", "", 0, 0, fmt.Errorf("%w", err)
 	}
 
 	if ca != "" {
@@ -82,10 +80,10 @@ func createKafkaProducer() (*kafka.Producer, string, string, string, int32, stri
 			"retries":           "0",
 		})
 		if err != nil {
-			return nil, "", "", "", 0, "", 0, fmt.Errorf("%w", err)
+			return nil, "", "", "", 0, 0, fmt.Errorf("%w", err)
 		}
 
-		return p, clientID, hosts, topic, partition, certFileLocation, sizeLimit, nil
+		return p, clientID, hosts, topic, partition, sizeLimit, nil
 	}
 
 	p, err := kafka.NewProducer(&kafka.ConfigMap{
@@ -95,10 +93,10 @@ func createKafkaProducer() (*kafka.Producer, string, string, string, int32, stri
 		"retries":           "0",
 	})
 	if err != nil {
-		return nil, "", "", "", 0, "", 0, fmt.Errorf("%w", err)
+		return nil, "", "", "", 0, 0, fmt.Errorf("%w", err)
 	}
 
-	return p, clientID, hosts, topic, partition, "", sizeLimit, nil
+	return p, clientID, hosts, topic, partition, sizeLimit, nil
 }
 
 func readEnvVars() (string, string, string, int32, string, string, int, error) {

@@ -1,7 +1,6 @@
 package kafkaconsumer
 
 import (
-	"context"
 	"math"
 	"sync"
 
@@ -17,6 +16,7 @@ func newKafkaMessageAssembler(log logr.Logger, fragmentInfoChan chan *kafkaMessa
 		partitionLowestOffsetMap:       make(map[int32]kafka.Offset),
 		fragmentInfoChan:               fragmentInfoChan,
 		msgChan:                        msgChan,
+		stopChan:                       make(chan struct{}, 1),
 		lock:                           sync.Mutex{},
 	}
 }
@@ -27,17 +27,25 @@ type kafkaMessageAssembler struct {
 	partitionLowestOffsetMap       map[int32]kafka.Offset
 	fragmentInfoChan               chan *kafkaMessageFragmentInfo
 	msgChan                        chan *kafka.Message
+	stopChan                       chan struct{}
 	lock                           sync.Mutex
 }
 
-func (assembler *kafkaMessageAssembler) Start(ctx context.Context) {
-	go assembler.handleFragments(ctx)
+func (assembler *kafkaMessageAssembler) start() {
+	go assembler.handleFragments()
 }
 
-func (assembler *kafkaMessageAssembler) handleFragments(ctx context.Context) {
+func (assembler *kafkaMessageAssembler) stop() {
+	go func() {
+		assembler.stopChan <- struct{}{}
+		close(assembler.stopChan)
+	}()
+}
+
+func (assembler *kafkaMessageAssembler) handleFragments() {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-assembler.stopChan:
 			assembler.log.Info("stopped kafka message assembler - fragments handler")
 			return
 
@@ -122,7 +130,7 @@ func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
 }
 
 // FixMessageOffset corrects the offset of the received message so that it does not allow for unsafe committing.
-func (assembler *kafkaMessageAssembler) FixMessageOffset(msg *kafka.Message) {
+func (assembler *kafkaMessageAssembler) fixMessageOffset(msg *kafka.Message) {
 	assembler.lock.Lock()
 	defer assembler.lock.Unlock()
 

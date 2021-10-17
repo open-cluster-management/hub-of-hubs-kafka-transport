@@ -1,7 +1,6 @@
 package kafkaconsumer
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -39,15 +38,12 @@ func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsu
 		return nil, fmt.Errorf("%w: %v", errFailedToCreateConsumer, err)
 	}
 
-	// create context for sub-routines
-	ctx, cancelContext := context.WithCancel(context.Background())
-
 	// create channel for passing received bundle fragments
 	fragmentInfoChan := make(chan *kafkaMessageFragmentInfo, assemblerBufferedChannelsSize)
 
 	// create fragments handler
 	messageAssembler := newKafkaMessageAssembler(log, fragmentInfoChan, msgChan)
-	messageAssembler.Start(ctx)
+	messageAssembler.start()
 
 	return &KafkaConsumer{
 		log:              log,
@@ -56,8 +52,7 @@ func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsu
 		topics:           topics,
 		msgChan:          msgChan,
 		fragmentInfoChan: fragmentInfoChan,
-		ctx:              ctx,
-		cancelContext:    cancelContext,
+		stopChan:         make(chan struct{}, 1),
 	}, nil
 }
 
@@ -69,8 +64,7 @@ type KafkaConsumer struct {
 	topics           []string
 	msgChan          chan *kafka.Message
 	fragmentInfoChan chan *kafkaMessageFragmentInfo
-	ctx              context.Context
-	cancelContext    context.CancelFunc
+	stopChan         chan struct{}
 }
 
 func createKafkaConsumer() (*kafka.Consumer, []string, error) {
@@ -138,7 +132,12 @@ func readEnvVars() (string, string, []string, string, error) {
 
 // Close closes the KafkaConsumer.
 func (c *KafkaConsumer) Close() {
-	c.cancelContext()
+	go func() {
+		c.stopChan <- struct{}{}
+		close(c.stopChan)
+	}()
+
+	c.messageAssembler.stop()
 	_ = c.kafkaConsumer.Close()
 }
 
@@ -158,7 +157,7 @@ func (c *KafkaConsumer) Subscribe() error {
 	go func() {
 		for {
 			select {
-			case <-c.ctx.Done():
+			case <-c.stopChan:
 				_ = c.kafkaConsumer.Unsubscribe()
 				c.log.Info("stopped listening", "topics", c.topics)
 
@@ -175,7 +174,7 @@ func (c *KafkaConsumer) Subscribe() error {
 					fragment, msgIsFragment := c.messageIsFragment(msg)
 					if !msgIsFragment {
 						// fix offset in-case msg landed on a partition with open fragment collections
-						c.messageAssembler.FixMessageOffset(msg)
+						c.messageAssembler.fixMessageOffset(msg)
 						c.msgChan <- msg
 
 						continue
