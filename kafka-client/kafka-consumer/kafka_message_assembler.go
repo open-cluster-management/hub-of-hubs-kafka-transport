@@ -69,16 +69,17 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 
 	fragCollection, found := fragmentCollectionMap[fragInfo.key]
 	if !found || fragCollection.dismantlingTimestamp.Before(fragInfo.dismantlingTimestamp) {
+		if found {
+			// update the lowest offset record on partition if necessary
+			assembler.processDeleteOffsetOnPartition(partition, fragCollection.lowestOffset)
+		}
 		// fragmentCollection not found or is hosting outdated fragments
 		fragCollection := newKafkaMessageFragmentsCollection(fragInfo.totalSize, fragInfo.dismantlingTimestamp)
 		fragmentCollectionMap[fragInfo.key] = fragCollection
 		fragCollection.AddFragment(fragInfo)
 
-		// update lowest-offset on partition
-		if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; !found || (found &&
-			fragCollection.lowestOffset < lowestOffset) {
-			assembler.partitionLowestOffsetMap[partition] = fragCollection.lowestOffset
-		}
+		// update the lowest offset on partition if needed
+		assembler.processNewOffsetOnPartition(partition, fragCollection.lowestOffset)
 
 		return
 	} else if fragCollection.dismantlingTimestamp.After(fragInfo.dismantlingTimestamp) {
@@ -103,19 +104,18 @@ func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
 
 	// delete collection from map
 	delete(assembler.partitionFragmentCollectionMap[partition], key)
+	// delete collection map if emptied
+	if len(assembler.partitionFragmentCollectionMap[partition]) == 0 {
+		delete(assembler.partitionFragmentCollectionMap, partition)
+	}
 
 	// update message offset: set it to that of the lowest (incomplete) collection's offset on partition, or to this
-	// collection's highest offset if it is the lowest on partition.
+	// collection's highest offset if it is the lowest on partition (default)
 	if lowestOffset := assembler.partitionLowestOffsetMap[partition]; lowestOffset != collection.lowestOffset {
 		collection.latestKafkaMessage.TopicPartition.Offset = lowestOffset
 	} else {
 		// update partition offset cache map
-		if newLowestOffset := assembler.findLowestOffsetOnPartition(partition); newLowestOffset < 0 {
-			// no collection left on partition
-			delete(assembler.partitionLowestOffsetMap, partition)
-		} else {
-			assembler.partitionLowestOffsetMap[partition] = newLowestOffset
-		}
+		assembler.processDeleteOffsetOnPartition(partition, collection.lowestOffset)
 	}
 
 	// forward assembled bundle onwards (it has fragmented key identifier but complete content)
@@ -145,6 +145,28 @@ func (assembler *kafkaMessageAssembler) fixMessageOffset(msg *kafka.Message) {
 	msg.TopicPartition.Offset = lowestOffsetOnPartition
 }
 
+// processNewOffsetOnPartition sets the partition's lowest offset to the given offset if it is.
+func (assembler *kafkaMessageAssembler) processNewOffsetOnPartition(partition int32, offset kafka.Offset) {
+	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; !found || offset < lowestOffset {
+		assembler.partitionLowestOffsetMap[partition] = offset
+	}
+}
+
+// processDeleteOffsetOnPartition updates the partition -> lowest offset mapping if the offset received is the lowest
+// on the given partition. The new lowest offset is calculated and set if found, otherwise the mapping is deleted.
+func (assembler *kafkaMessageAssembler) processDeleteOffsetOnPartition(partition int32, offset kafka.Offset) {
+	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; found && offset == lowestOffset {
+		// update new offset
+		if lowestOffset := assembler.findLowestOffsetOnPartition(partition); lowestOffset < 0 {
+			// no open sequence left on partition
+			delete(assembler.partitionLowestOffsetMap, partition)
+		} else {
+			assembler.partitionLowestOffsetMap[partition] = lowestOffset
+		}
+	}
+}
+
+// findLowestOffsetOnPartition returns the lowest offset on the given partition, returns -1 if none are found.
 func (assembler *kafkaMessageAssembler) findLowestOffsetOnPartition(partition int32) kafka.Offset {
 	var lowest kafka.Offset = math.MaxInt64
 
@@ -155,10 +177,6 @@ func (assembler *kafkaMessageAssembler) findLowestOffsetOnPartition(partition in
 			}
 		}
 	} else {
-		return -1
-	}
-
-	if lowest == math.MaxInt64 {
 		return -1
 	}
 

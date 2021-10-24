@@ -8,19 +8,18 @@ import (
 )
 
 const (
-	ownerOnlyRW = 0o600
+	ownerOnlyRW      = 0o600
+	certFileLocation = "/usr/local/bin/ca.crt"
 )
 
 // GetCertificate creates a file with the certificate (PEM) received and registers it in root certification authority.
 func GetCertificate(cert *string) string {
-	localCertFile := "/usr/local/bin/ca.crt"
-
 	certBytes, err := base64.StdEncoding.DecodeString(*cert)
 	if err != nil {
 		log.Fatalf("kafka-certificate-manager: %v", err)
 	}
 
-	if err = ioutil.WriteFile(localCertFile, certBytes, ownerOnlyRW); err != nil {
+	if err = ioutil.WriteFile(certFileLocation, certBytes, ownerOnlyRW); err != nil {
 		log.Fatalf("kafka-certificate-manager: failed write cert file: %v", err)
 	}
 
@@ -35,5 +34,5 @@ func GetCertificate(cert *string) string {
 		log.Fatalf("kafka-certificate-manager: failed to append certificate")
 	}
 
-	return localCertFile
+	return certFileLocation
 }
