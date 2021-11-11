@@ -8,6 +8,8 @@ const (
 	// MsgTypeKey is the common TransportMessage's MsgType tag.
 	MsgTypeKey = "msgType"
 
+	// HeaderCompressionType is the key used in compression type header.
+	HeaderCompressionType = "compressionType"
 	// HeaderSizeKey is the key used in total bundle size header.
 	HeaderSizeKey = "size"
 	// HeaderOffsetKey is the key used in message fragment offset header.
