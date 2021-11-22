@@ -4,27 +4,19 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/go-logr/logr"
-	kafkaclient "github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client"
 	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
 const (
-	envVarKafkaConsumerID         = "KAFKA_CONSUMER_ID"
-	envVarKafkaConsumerHosts      = "KAFKA_CONSUMER_HOSTS"
-	envVarKafkaConsumerSSLCA      = "KAFKA_SSL_CA"
-	envVarKafkaConsumerTopic      = "KAFKA_CONSUMER_TOPIC"
 	pollTimeoutMs                 = 100
 	assemblerBufferedChannelsSize = 100
 )
 
 var (
-	errEnvVarNotFound         = errors.New("not found environment variable")
 	errFailedToCreateConsumer = errors.New("failed to create kafka consumer")
 	errFailedToSubscribe      = errors.New("failed to subscribe to topic")
 	errHeaderNotFound         = errors.New("required message header not found")
@@ -32,10 +24,11 @@ var (
 )
 
 // NewKafkaConsumer returns a new instance of KafkaConsumer object.
-func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsumer, error) {
-	c, topics, err := createKafkaConsumer()
+func NewKafkaConsumer(configMap *kafka.ConfigMap, msgChan chan *kafka.Message,
+	log logr.Logger) (*KafkaConsumer, error) {
+	c, err := kafka.NewConsumer(configMap)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToCreateConsumer, err)
+		return nil, fmt.Errorf("%w - %v", errFailedToCreateConsumer, err)
 	}
 
 	// create channel for passing received bundle fragments
@@ -49,7 +42,6 @@ func NewKafkaConsumer(msgChan chan *kafka.Message, log logr.Logger) (*KafkaConsu
 		log:              log,
 		kafkaConsumer:    c,
 		messageAssembler: messageAssembler,
-		topics:           topics,
 		msgChan:          msgChan,
 		fragmentInfoChan: fragmentInfoChan,
 		stopChan:         make(chan struct{}, 1),
@@ -61,73 +53,9 @@ type KafkaConsumer struct {
 	log              logr.Logger
 	kafkaConsumer    *kafka.Consumer
 	messageAssembler *kafkaMessageAssembler
-	topics           []string
 	msgChan          chan *kafka.Message
 	fragmentInfoChan chan *kafkaMessageFragmentInfo
 	stopChan         chan struct{}
-}
-
-func createKafkaConsumer() (*kafka.Consumer, []string, error) {
-	clientID, hosts, topics, ca, err := readEnvVars()
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w", err)
-	}
-
-	if ca != "" {
-		c, err := kafka.NewConsumer(&kafka.ConfigMap{
-			"bootstrap.servers":  hosts,
-			"security.protocol":  "ssl",
-			"ssl.ca.location":    kafkaclient.GetCertificate(&ca),
-			"client.id":          clientID,
-			"group.id":           clientID,
-			"auto.offset.reset":  "earliest",
-			"enable.auto.commit": "false",
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w", err)
-		}
-
-		return c, topics, nil
-	}
-
-	c, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  hosts,
-		"client.id":          clientID,
-		"group.id":           clientID,
-		"auto.offset.reset":  "earliest",
-		"enable.auto.commit": "false",
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w", err)
-	}
-
-	return c, topics, nil
-}
-
-func readEnvVars() (string, string, []string, string, error) {
-	id, found := os.LookupEnv(envVarKafkaConsumerID)
-	if !found {
-		return "", "", nil, "",
-			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerID)
-	}
-
-	hosts, found := os.LookupEnv(envVarKafkaConsumerHosts)
-	if !found {
-		return "", "", nil, "",
-			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerHosts)
-	}
-
-	topicString, found := os.LookupEnv(envVarKafkaConsumerTopic)
-	if !found {
-		return "", "", nil, "",
-			fmt.Errorf("%w: %s", errEnvVarNotFound, envVarKafkaConsumerTopic)
-	}
-
-	topics := strings.Split(topicString, ",")
-
-	ca := os.Getenv(envVarKafkaConsumerSSLCA)
-
-	return id, hosts, topics, ca, nil
 }
 
 // Close closes the KafkaConsumer.
@@ -147,19 +75,19 @@ func (c *KafkaConsumer) Consumer() *kafka.Consumer {
 }
 
 // Subscribe starts subscription to the set topic.
-func (c *KafkaConsumer) Subscribe() error {
-	if err := c.kafkaConsumer.SubscribeTopics(c.topics, nil); err != nil {
+func (c *KafkaConsumer) Subscribe(topics []string) error {
+	if err := c.kafkaConsumer.SubscribeTopics(topics, nil); err != nil {
 		return fmt.Errorf("%w: %v", errFailedToSubscribe, err)
 	}
 
-	c.log.Info("started listening", "topics", c.topics)
+	c.log.Info("started listening", "topics", topics)
 
 	go func() {
 		for {
 			select {
 			case <-c.stopChan:
 				_ = c.kafkaConsumer.Unsubscribe()
-				c.log.Info("stopped listening", "topics", c.topics)
+				c.log.Info("stopped listening", "topics", topics)
 
 				return
 

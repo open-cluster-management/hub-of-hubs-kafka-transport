@@ -25,8 +25,8 @@ func (b *KafkaMessageBuilder) Topic(topic *string, partitionID int32) *KafkaMess
 }
 
 // Key sets the message's key.
-func (b *KafkaMessageBuilder) Key(key []byte) *KafkaMessageBuilder {
-	b.m.Key = key
+func (b *KafkaMessageBuilder) Key(key string) *KafkaMessageBuilder {
+	b.m.Key = []byte(key)
 
 	return b
 }
@@ -41,6 +41,13 @@ func (b *KafkaMessageBuilder) Payload(payload []byte) *KafkaMessageBuilder {
 // Header adds a header to the message's headers array.
 func (b *KafkaMessageBuilder) Header(header kafka.Header) *KafkaMessageBuilder {
 	b.m.Headers = append(b.m.Headers, header)
+
+	return b
+}
+
+// Headers appends headers to the message's headers array.
+func (b *KafkaMessageBuilder) Headers(headers []kafka.Header) *KafkaMessageBuilder {
+	b.m.Headers = append(b.m.Headers, headers...)
 
 	return b
 }

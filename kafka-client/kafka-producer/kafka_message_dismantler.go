@@ -13,20 +13,20 @@ const intSize = 4
 
 var errFailedToDismantleMessage = fmt.Errorf("failed to dismantle message")
 
-func dismantleAndSendKafkaMessage(producer *KafkaProducer, headers []kafka.Header, payload []byte) error {
+func dismantleAndSendKafkaMessage(producer *KafkaProducer, key string, topic *string, partition int32,
+	headers []kafka.Header, payload []byte) error {
 	dismantlingTime := time.Now().Format(types.TimeFormat)
 	dismantlingTimeBytes := []byte(dismantlingTime)
 
 	chunks := splitBufferByLimit(payload, producer.messageSizeLimit)
 
 	for idx, chunk := range chunks {
-		messageKey := fmt.Sprintf("%d_%s", idx, string(producer.key))
-		messageKeyBytes := []byte(messageKey)
+		messageKey := fmt.Sprintf("%d_%s", idx, key)
 
 		messageBuilder := &KafkaMessageBuilder{}
-		kafkaMessageBuild := messageBuilder.
-			Topic(&producer.topic, producer.partition).
-			Key(messageKeyBytes).
+		kafkaMessage := messageBuilder.
+			Topic(topic, partition).
+			Key(messageKey).
 			Payload(chunk).
 			Header(kafka.Header{
 				Key: types.HeaderSizeKey, Value: toByteArray(len(payload)),
@@ -36,13 +36,11 @@ func dismantleAndSendKafkaMessage(producer *KafkaProducer, headers []kafka.Heade
 			}).
 			Header(kafka.Header{
 				Key: types.HeaderDismantlingTimestamp, Value: dismantlingTimeBytes,
-			})
+			}).
+			Headers(headers).
+			Build()
 
-		for _, header := range headers {
-			kafkaMessageBuild.Header(header)
-		}
-
-		if err := producer.kafkaProducer.Produce(kafkaMessageBuild.Build(), producer.deliveryChan); err != nil {
+		if err := producer.kafkaProducer.Produce(kafkaMessage, producer.deliveryChan); err != nil {
 			return fmt.Errorf("%w: %v", errFailedToDismantleMessage, err)
 		}
 	}
