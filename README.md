@@ -3,11 +3,17 @@
 # Hub-of-Hubs-Kafka-Transport
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/open-cluster-management/hub-of-hubs-kafka-transport)](https://goreportcard.com/report/github.com/open-cluster-management/hub-of-hubs-kafka-transport)
+[![Go Reference](https://pkg.go.dev/badge/github.com/open-cluster-management/hub-of-hubs-kafka-transport.svg)](https://pkg.go.dev/github.com/open-cluster-management/hub-of-hubs-kafka-transport)
 [![License](https://img.shields.io/github/license/open-cluster-management/hub-of-hubs-kafka-transport)](/LICENSE)
 
 The kafka-transport component of [Hub-of-Hubs](https://github.com/open-cluster-management/hub-of-hubs).
 
-This repo is a **work in progress** that serves as a general base for the ongoing hub-of-hubs integration of Kafka as transport.
+This repo holds the common logic of kafka producer/consumer and is used by the different Hub-of-Hubs components as part 
+of using kafka as transport.
+
+Go to the [Contributing guide](CONTRIBUTING.md) to learn how to get involved.
+
+## Getting Started
 
 To use the producer/consumer wrappers provided, the following environment variables must be set:
 
