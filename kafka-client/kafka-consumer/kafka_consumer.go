@@ -185,7 +185,7 @@ func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 
 	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
 
-	timestamp, err := time.Parse(time.RFC3339, string(timestampHeader.Value))
+	timestamp, err := time.Parse(types.TimeFormat, string(timestampHeader.Value))
 	if err != nil {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderIllegalValue, types.HeaderDismantlingTimestamp)
 	}

@@ -9,7 +9,7 @@ const (
 	MsgTypeKey = "msgType"
 
 	// HeaderCompressionType is the key used in compression type header.
-	HeaderCompressionType = "compressionType"
+	HeaderCompressionType = "contentEncoding"
 	// HeaderSizeKey is the key used in total bundle size header.
 	HeaderSizeKey = "size"
 	// HeaderOffsetKey is the key used in message fragment offset header.
