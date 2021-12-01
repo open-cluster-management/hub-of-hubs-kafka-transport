@@ -48,6 +48,6 @@ Create the cluster and wait for the status to be updated, fetch (cluster YAML):
     ```
   
 the bootstrapServers associated with the plain listener should be used for internal connections, 
-such as producers/consumers that are deployed on the same ACM (hub-of-hubs-...-transport-bridge), 
+such as producers/consumers that are deployed on the same ACM hub (e.g. for the components hub-of-hubs-...-transport-bridge), 
 while the TLS listener should be used (with the certificate) for connections external to the 
-cluster (leaf-hub-...-sync)
+cluster (e.g. for the components leaf-hub-...-sync).
