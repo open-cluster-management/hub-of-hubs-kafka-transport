@@ -14,7 +14,7 @@ on the ACM cluster (easily done via Red Hat OpenShift Container Platform - Admin
 Once the operator is installed, head to "Kafka" tab and create a new instance.
 
 ### Step 2
-Name your cluster (e.g. with "kafka-brokers-cluster") and expand the Kafka -> Listeners tab:
+Name your cluster kafka-brokers-cluster and expand the Kafka -> Listeners tab:
 * Keep the first default listener for inter-cluster connections.
   * { name = plain, port = 9092, TLS disabled, type = internal }
 * Change the second default listener's type to "route" to be used for external connections.
