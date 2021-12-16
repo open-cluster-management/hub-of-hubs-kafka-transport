@@ -74,6 +74,7 @@ func (producer *KafkaProducer) getMessageFragments(key string, topic *string, pa
 	// else, message size is above the limit. need to split the message into fragments.
 	chunks := producer.splitPayloadIntoChunks(payload)
 	messageFragments := make([]*kafka.Message, len(chunks))
+	fragmentationTimestamp := time.Now().Format(time.RFC3339)
 
 	for i, chunk := range chunks {
 		messageFragments[i] = newMessageBuilder(fmt.Sprintf("%s_%d", key, i), topic, partition, headers, chunk).
@@ -84,7 +85,7 @@ func (producer *KafkaProducer) getMessageFragments(key string, topic *string, pa
 				Key: kafkaheaders.Offset, Value: toByteArray(i * producer.messageSizeLimit),
 			}).
 			header(kafka.Header{
-				Key: kafkaheaders.FragmentationTimestamp, Value: []byte(time.Now().Format(time.RFC3339)),
+				Key: kafkaheaders.FragmentationTimestamp, Value: []byte(fragmentationTimestamp),
 			}).
 			build()
 	}
