@@ -16,17 +16,17 @@ const pollTimeoutMs = 100
 
 var errHeaderNotFound = errors.New("required message header not found")
 
-// NewKafkaConsumer returns a new instance of KafkaConsumer object.
+// NewKafkaConsumer returns a new instance of KafkaConsumer.
 func NewKafkaConsumer(configMap *kafka.ConfigMap, msgChan chan *kafka.Message,
 	log logr.Logger) (*KafkaConsumer, error) {
-	c, err := kafka.NewConsumer(configMap)
+	consumer, err := kafka.NewConsumer(configMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kafka consumer - %w", err)
 	}
 
 	return &KafkaConsumer{
 		log:              log,
-		kafkaConsumer:    c,
+		kafkaConsumer:    consumer,
 		messageAssembler: newKafkaMessageAssembler(),
 		msgChan:          msgChan,
 		stopChan:         make(chan struct{}, 1),
