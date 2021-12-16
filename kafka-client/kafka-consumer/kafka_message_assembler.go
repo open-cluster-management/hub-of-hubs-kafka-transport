@@ -18,9 +18,9 @@ type kafkaMessageAssembler struct {
 	partitionLowestOffsetMap         map[int32]kafka.Offset
 }
 
-// processFragmentInfo processes a fragment info and returns (kafka message, true) if any got assembled, otherwise,
-// (nil, false).
-func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFragmentInfo) (*kafka.Message, bool) {
+// processFragmentInfo processes a fragment info and returns kafka message if any got assembled, otherwise,
+// nil.
+func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFragmentInfo) *kafka.Message {
 	partition := fragInfo.kafkaMessage.TopicPartition.Partition
 
 	fragmentCollectionMap, found := assembler.partitionToFragmentCollectionMap[partition]
@@ -32,7 +32,7 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFra
 	fragCollection, found := fragmentCollectionMap[fragInfo.key]
 	if found && fragCollection.fragmentationTimestamp.After(fragInfo.fragmentationTimestamp) {
 		// fragment timestamp < collection timestamp got an outdated fragment
-		return nil, false
+		return nil
 	}
 
 	if !found || fragCollection.fragmentationTimestamp.Before(fragInfo.fragmentationTimestamp) {
@@ -43,7 +43,7 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFra
 		// update the lowest offset on partition if needed
 		assembler.addOffsetToPartition(partition, fragCollection.lowestOffset)
 
-		return nil, false
+		return nil
 	}
 
 	// collection exists and the received fragment package should be added
@@ -51,15 +51,19 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFra
 
 	// check if got all and assemble
 	if fragCollection.totalMessageSize == fragCollection.accumulatedFragmentsSize {
-		return assembler.assembleCollection(fragInfo.key, fragCollection), true
+		return assembler.assembleCollection(fragInfo.key, fragCollection)
 	}
 
-	return nil, false
+	return nil
 }
 
 func (assembler *kafkaMessageAssembler) assembleCollection(key string,
 	collection *messageFragmentsCollection) *kafka.Message {
-	assembledBundle, _ := collection.assemble()           // no error because checked assembling size requirement
+	assembledBundle, err := collection.assemble()
+	if err != nil {
+		return nil // cannot assemble, no need to log
+	}
+
 	collection.latestKafkaMessage.Value = assembledBundle // hijack message with the highest offset
 	partition := collection.latestKafkaMessage.TopicPartition.Partition
 

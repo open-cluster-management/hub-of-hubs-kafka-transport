@@ -40,8 +40,8 @@ func (collection *messageFragmentsCollection) add(fragmentInfo *messageFragmentI
 	collection.lock.Lock()
 	defer collection.lock.Unlock()
 
-	if fragmentInfo.fragment.offset > collection.totalMessageSize {
-		return
+	if fragmentInfo.fragment.offset+uint32(len(fragmentInfo.fragment.bytes)) > collection.totalMessageSize {
+		return // fragment reaches out of message bounds
 	}
 
 	// don't add fragment to collection, if already exists. this may happen if kafka uses at least once guarantees

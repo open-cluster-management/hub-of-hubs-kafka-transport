@@ -103,7 +103,7 @@ func (consumer *KafkaConsumer) pollMessage() {
 			return
 		}
 
-		if assembledMessage, assembled := consumer.messageAssembler.processFragmentInfo(fragInfo); assembled {
+		if assembledMessage := consumer.messageAssembler.processFragmentInfo(fragInfo); assembledMessage != nil {
 			consumer.msgChan <- assembledMessage
 		}
 	case kafka.Error:
