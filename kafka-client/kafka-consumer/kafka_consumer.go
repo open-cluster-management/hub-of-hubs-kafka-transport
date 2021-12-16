@@ -9,7 +9,6 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/go-logr/logr"
 	kafkaheaders "github.com/open-cluster-management/hub-of-hubs-kafka-transport/headers"
-	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
 const pollTimeoutMs = 100
@@ -147,16 +146,6 @@ func (consumer *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string
 
 func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 	fragment *kafkaMessageFragment) (*kafkaMessageFragmentInfo, error) {
-	msgIDHeader, found := consumer.lookupHeader(msg, types.MsgIDKey)
-	if !found {
-		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
-	}
-
-	msgTypeHeader, found := consumer.lookupHeader(msg, types.MsgTypeKey)
-	if !found {
-		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
-	}
-
 	timestampHeader, found := consumer.lookupHeader(msg, kafkaheaders.FragmentationTimestamp)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.FragmentationTimestamp)
@@ -167,8 +156,6 @@ func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.Size)
 	}
 
-	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
-
 	timestamp, err := time.Parse(time.RFC3339, string(timestampHeader.Value))
 	if err != nil {
 		return nil, fmt.Errorf("header (%s) illegal value - %w", kafkaheaders.FragmentationTimestamp, err)
@@ -177,7 +164,7 @@ func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 	size := binary.BigEndian.Uint32(sizeHeader.Value)
 
 	return &kafkaMessageFragmentInfo{
-		key:                  key,
+		key:                  string(msg.Key),
 		totalSize:            size,
 		dismantlingTimestamp: timestamp,
 		fragment:             fragment,
