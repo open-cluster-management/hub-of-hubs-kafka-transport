@@ -8,38 +8,38 @@ import (
 
 func newKafkaMessageAssembler() *kafkaMessageAssembler {
 	return &kafkaMessageAssembler{
-		partitionToFragmentCollectionMap: make(map[int32]map[string]*kafkaMessageFragmentsCollection),
+		partitionToFragmentCollectionMap: make(map[int32]map[string]*messageFragmentsCollection),
 		partitionLowestOffsetMap:         make(map[int32]kafka.Offset),
 	}
 }
 
 type kafkaMessageAssembler struct {
-	partitionToFragmentCollectionMap map[int32]map[string]*kafkaMessageFragmentsCollection
+	partitionToFragmentCollectionMap map[int32]map[string]*messageFragmentsCollection
 	partitionLowestOffsetMap         map[int32]kafka.Offset
 }
 
 // processFragmentInfo processes a fragment info and returns (kafka message, true) if any got assembled, otherwise,
 // (nil, false).
-func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessageFragmentInfo) (*kafka.Message, bool) {
+func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *messageFragmentInfo) (*kafka.Message, bool) {
 	partition := fragInfo.kafkaMessage.TopicPartition.Partition
 
 	fragmentCollectionMap, found := assembler.partitionToFragmentCollectionMap[partition]
 	if !found {
-		fragmentCollectionMap = make(map[string]*kafkaMessageFragmentsCollection)
+		fragmentCollectionMap = make(map[string]*messageFragmentsCollection)
 		assembler.partitionToFragmentCollectionMap[partition] = fragmentCollectionMap
 	}
 
 	fragCollection, found := fragmentCollectionMap[fragInfo.key]
-	if found && fragCollection.dismantlingTimestamp.After(fragInfo.dismantlingTimestamp) {
+	if found && fragCollection.fragmentationTimestamp.After(fragInfo.fragmentationTimestamp) {
 		// fragment timestamp < collection timestamp got an outdated fragment
 		return nil, false
 	}
 
-	if !found || fragCollection.dismantlingTimestamp.Before(fragInfo.dismantlingTimestamp) {
+	if !found || fragCollection.fragmentationTimestamp.Before(fragInfo.fragmentationTimestamp) {
 		// fragmentCollection not found or is hosting outdated fragments
-		fragCollection := newKafkaMessageFragmentsCollection(fragInfo.totalSize, fragInfo.dismantlingTimestamp)
+		fragCollection := newMessageFragmentsCollection(fragInfo.totalSize, fragInfo.fragmentationTimestamp)
 		fragmentCollectionMap[fragInfo.key] = fragCollection
-		fragCollection.AddFragment(fragInfo)
+		fragCollection.add(fragInfo)
 		// update the lowest offset on partition if needed
 		assembler.addOffsetToPartition(partition, fragCollection.lowestOffset)
 
@@ -47,7 +47,7 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 	}
 
 	// collection exists and the received fragment package should be added
-	fragCollection.AddFragment(fragInfo)
+	fragCollection.add(fragInfo)
 
 	// check if got all and assemble
 	if fragCollection.totalMessageSize == fragCollection.accumulatedFragmentsSize {
@@ -58,8 +58,8 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 }
 
 func (assembler *kafkaMessageAssembler) assembleCollection(key string,
-	collection *kafkaMessageFragmentsCollection) *kafka.Message {
-	assembledBundle, _ := collection.Assemble()           // no error because checked assembling size requirement
+	collection *messageFragmentsCollection) *kafka.Message {
+	assembledBundle, _ := collection.assemble()           // no error because checked assembling size requirement
 	collection.latestKafkaMessage.Value = assembledBundle // hijack message with the highest offset
 	partition := collection.latestKafkaMessage.TopicPartition.Partition
 

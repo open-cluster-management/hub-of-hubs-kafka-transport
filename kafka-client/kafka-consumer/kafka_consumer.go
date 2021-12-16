@@ -120,7 +120,7 @@ func (consumer *KafkaConsumer) Commit(msg *kafka.Message) error {
 	return nil
 }
 
-func (consumer *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFragment, bool) {
+func (consumer *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*messageFragment, bool) {
 	offsetHeader, offsetFound := consumer.lookupHeader(msg, kafkaheaders.Offset)
 	_, sizeFound := consumer.lookupHeader(msg, kafkaheaders.Size)
 
@@ -128,7 +128,7 @@ func (consumer *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMess
 		return nil, false
 	}
 
-	return &kafkaMessageFragment{
+	return &messageFragment{
 		offset: binary.BigEndian.Uint32(offsetHeader.Value),
 		bytes:  msg.Value,
 	}, true
@@ -145,7 +145,7 @@ func (consumer *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string
 }
 
 func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
-	fragment *kafkaMessageFragment) (*kafkaMessageFragmentInfo, error) {
+	fragment *messageFragment) (*messageFragmentInfo, error) {
 	timestampHeader, found := consumer.lookupHeader(msg, kafkaheaders.FragmentationTimestamp)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.FragmentationTimestamp)
@@ -163,11 +163,11 @@ func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 
 	size := binary.BigEndian.Uint32(sizeHeader.Value)
 
-	return &kafkaMessageFragmentInfo{
-		key:                  string(msg.Key),
-		totalSize:            size,
-		dismantlingTimestamp: timestamp,
-		fragment:             fragment,
-		kafkaMessage:         msg,
+	return &messageFragmentInfo{
+		key:                    string(msg.Key),
+		totalSize:              size,
+		fragmentationTimestamp: timestamp,
+		fragment:               fragment,
+		kafkaMessage:           msg,
 	}, nil
 }

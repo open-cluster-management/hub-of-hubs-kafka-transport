@@ -7,13 +7,13 @@
 #   - clean-vendor - removes third party libraries from vendor directory
 
 .PHONY: all				##formats the code and downloads vendor libs
-all: clean-vendor fmt lint vendor
+all: vendor fmt lint
 
 .PHONY: fmt				##formats the code
 fmt:
-	@gci -w .
-	@go fmt ./...
-	@gofumpt -w .
+	@gci -w ./kafka-client/ ./headers/
+	@go fmt ./kafka-client/... ./headers/...
+	@gofumpt -w ./kafka-client/ ./headers/
 
 .PHONY: vendor			##download all third party libraries and puts them inside vendor directory
 vendor:
@@ -24,10 +24,10 @@ clean-vendor:
 	-@rm -rf vendor
 
 .PHONY: lint				##runs code analysis tools
-lint: clean-vendor
-	go vet ./...
-	golint ./...
-	golangci-lint run ./...
+lint:
+	go vet ./kafka-client/... ./headers/...
+	golint ./kafka-client/... ./headers/...
+	golangci-lint run ./kafka-client/... ./headers/...
 
 .PHONY: help				##show this help message
 help:
