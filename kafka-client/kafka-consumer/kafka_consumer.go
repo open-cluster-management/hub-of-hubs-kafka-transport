@@ -8,6 +8,7 @@ import (
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/go-logr/logr"
+	kafkaheaders "github.com/open-cluster-management/hub-of-hubs-kafka-transport/headers"
 	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
 )
 
@@ -121,8 +122,8 @@ func (c *KafkaConsumer) Commit(msg *kafka.Message) error {
 }
 
 func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFragment, bool) {
-	offsetHeader, offsetFound := c.lookupHeader(msg, types.HeaderOffsetKey)
-	_, sizeFound := c.lookupHeader(msg, types.HeaderSizeKey)
+	offsetHeader, offsetFound := c.lookupHeader(msg, kafkaheaders.Offset)
+	_, sizeFound := c.lookupHeader(msg, kafkaheaders.Size)
 
 	if !(offsetFound && sizeFound) {
 		return nil, false
@@ -156,21 +157,21 @@ func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
 	}
 
-	timestampHeader, found := c.lookupHeader(msg, types.HeaderDismantlingTimestamp)
+	timestampHeader, found := c.lookupHeader(msg, kafkaheaders.FragmentationTimestamp)
 	if !found {
-		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.HeaderDismantlingTimestamp)
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.FragmentationTimestamp)
 	}
 
-	sizeHeader, found := c.lookupHeader(msg, types.HeaderSizeKey)
+	sizeHeader, found := c.lookupHeader(msg, kafkaheaders.Size)
 	if !found {
-		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.HeaderSizeKey)
+		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.Size)
 	}
 
 	key := fmt.Sprintf("%s_%s", string(msgIDHeader.Value), string(msgTypeHeader.Value))
 
-	timestamp, err := time.Parse(types.TimeFormat, string(timestampHeader.Value))
+	timestamp, err := time.Parse(time.RFC3339, string(timestampHeader.Value))
 	if err != nil {
-		return nil, fmt.Errorf("header (%s) illegal value - %w", types.HeaderDismantlingTimestamp, err)
+		return nil, fmt.Errorf("header (%s) illegal value - %w", kafkaheaders.FragmentationTimestamp, err)
 	}
 
 	size := binary.BigEndian.Uint32(sizeHeader.Value)

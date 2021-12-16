@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/types"
+	kafkaheaders "github.com/open-cluster-management/hub-of-hubs-kafka-transport/headers"
 )
 
 const (
@@ -54,76 +54,56 @@ func (producer *KafkaProducer) Producer() *kafka.Producer {
 
 // ProduceAsync sends a message to the kafka brokers asynchronously.
 func (producer *KafkaProducer) ProduceAsync(key string, topic string, partition int32, headers []kafka.Header,
-	msg []byte) error {
-	if len(msg) > producer.messageSizeLimit {
-		if err := producer.dismantleAndSendKafkaMessage(key, &topic, partition, headers, msg); err != nil {
-			return fmt.Errorf("failed to send message - %w", err)
+	payload []byte) error {
+	messageFragments := producer.getMessageFragments(key, &topic, partition, headers, payload)
+
+	for _, message := range messageFragments {
+		if err := producer.kafkaProducer.Produce(message, producer.deliveryChan); err != nil {
+			return fmt.Errorf("failed to produce message - %w", err)
 		}
-
-		return nil
-	}
-
-	kafkaMessage := newMessageBuilder().
-		topic(&topic, partition).
-		key(key).
-		headers(headers).
-		payload(msg).
-		build()
-
-	if err := producer.kafkaProducer.Produce(kafkaMessage, producer.deliveryChan); err != nil {
-		return fmt.Errorf("failed to send message - %w", err)
 	}
 
 	return nil
 }
 
-func (producer *KafkaProducer) dismantleAndSendKafkaMessage(key string, topic *string, partition int32,
-	headers []kafka.Header, payload []byte) error {
-	dismantlingTime := time.Now().Format(types.TimeFormat)
-	dismantlingTimeBytes := []byte(dismantlingTime)
+func (producer *KafkaProducer) getMessageFragments(key string, topic *string, partition int32, headers []kafka.Header,
+	payload []byte) []*kafka.Message {
+	if len(payload) <= producer.messageSizeLimit {
+		return []*kafka.Message{newMessageBuilder(key, topic, partition, headers, payload).build()}
+	}
+	// else, message size is above the limit. need to split the message into fragments.
+	chunks := producer.splitPayloadIntoChunks(payload)
+	messageFragments := make([]*kafka.Message, len(chunks))
 
-	chunks := producer.splitBufferByLimit(payload)
-
-	for idx, chunk := range chunks {
-		messageKey := fmt.Sprintf("%d_%s", idx, key)
-
-		messageBuilder := &messageBuilder{}
-		kafkaMessage := messageBuilder.
-			topic(topic, partition).
-			key(messageKey).
-			payload(chunk).
+	for i, chunk := range chunks {
+		messageFragments[i] = newMessageBuilder(fmt.Sprintf("%s_%d", key, i), topic, partition, headers, chunk).
 			header(kafka.Header{
-				Key: types.HeaderSizeKey, Value: toByteArray(len(payload)),
+				Key: kafkaheaders.Size, Value: toByteArray(len(payload)),
 			}).
 			header(kafka.Header{
-				Key: types.HeaderOffsetKey, Value: toByteArray(idx * producer.messageSizeLimit),
+				Key: kafkaheaders.Offset, Value: toByteArray(i * producer.messageSizeLimit),
 			}).
 			header(kafka.Header{
-				Key: types.HeaderDismantlingTimestamp, Value: dismantlingTimeBytes,
+				Key: kafkaheaders.FragmentationTimestamp, Value: []byte(time.Now().Format(time.RFC3339)),
 			}).
-			headers(headers).
 			build()
-
-		if err := producer.kafkaProducer.Produce(kafkaMessage, producer.deliveryChan); err != nil {
-			return fmt.Errorf("failed to dismantle message - %w", err)
-		}
 	}
 
-	return nil
+	return messageFragments
 }
 
-func (producer *KafkaProducer) splitBufferByLimit(buf []byte) [][]byte {
+func (producer *KafkaProducer) splitPayloadIntoChunks(payload []byte) [][]byte {
 	var chunk []byte
 
-	chunks := make([][]byte, 0, len(buf)/producer.messageSizeLimit+1)
+	chunks := make([][]byte, 0, len(payload)/producer.messageSizeLimit+1)
 
-	for len(buf) >= producer.messageSizeLimit {
-		chunk, buf = buf[:producer.messageSizeLimit], buf[producer.messageSizeLimit:]
+	for len(payload) >= producer.messageSizeLimit {
+		chunk, payload = payload[:producer.messageSizeLimit], payload[producer.messageSizeLimit:]
 		chunks = append(chunks, chunk)
 	}
 
-	if len(buf) > 0 {
-		chunks = append(chunks, buf)
+	if len(payload) > 0 {
+		chunks = append(chunks, payload)
 	}
 
 	return chunks
