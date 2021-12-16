@@ -2,89 +2,48 @@ package kafkaconsumer
 
 import (
 	"math"
-	"sync"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"github.com/go-logr/logr"
 )
 
-func newKafkaMessageAssembler(log logr.Logger, fragmentInfoChan chan *kafkaMessageFragmentInfo,
-	msgChan chan *kafka.Message) *kafkaMessageAssembler {
+func newKafkaMessageAssembler() *kafkaMessageAssembler {
 	return &kafkaMessageAssembler{
-		log:                            log,
-		partitionFragmentCollectionMap: make(map[int32]map[string]*kafkaMessageFragmentsCollection),
-		partitionLowestOffsetMap:       make(map[int32]kafka.Offset),
-		fragmentInfoChan:               fragmentInfoChan,
-		msgChan:                        msgChan,
-		stopChan:                       make(chan struct{}, 1),
-		lock:                           sync.Mutex{},
+		partitionToFragmentCollectionMap: make(map[int32]map[string]*kafkaMessageFragmentsCollection),
+		partitionLowestOffsetMap:         make(map[int32]kafka.Offset),
 	}
 }
 
 type kafkaMessageAssembler struct {
-	log                            logr.Logger
-	partitionFragmentCollectionMap map[int32]map[string]*kafkaMessageFragmentsCollection
-	partitionLowestOffsetMap       map[int32]kafka.Offset
-	fragmentInfoChan               chan *kafkaMessageFragmentInfo
-	msgChan                        chan *kafka.Message
-	stopChan                       chan struct{}
-	lock                           sync.Mutex
+	partitionToFragmentCollectionMap map[int32]map[string]*kafkaMessageFragmentsCollection
+	partitionLowestOffsetMap         map[int32]kafka.Offset
 }
 
-func (assembler *kafkaMessageAssembler) start() {
-	go assembler.handleFragments()
-}
-
-func (assembler *kafkaMessageAssembler) stop() {
-	go func() {
-		assembler.stopChan <- struct{}{}
-		close(assembler.stopChan)
-	}()
-}
-
-func (assembler *kafkaMessageAssembler) handleFragments() {
-	for {
-		select {
-		case <-assembler.stopChan:
-			assembler.log.Info("stopped kafka message assembler - fragments handler")
-			return
-
-		case fragInfo := <-assembler.fragmentInfoChan:
-			assembler.processFragmentInfo(fragInfo)
-		}
-	}
-}
-
-func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessageFragmentInfo) {
-	assembler.lock.Lock()
-	defer assembler.lock.Unlock()
-
+// processFragmentInfo processes a fragment info and returns (kafka message, true) if any got assembled, otherwise,
+// (nil, false).
+func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessageFragmentInfo) (*kafka.Message, bool) {
 	partition := fragInfo.kafkaMessage.TopicPartition.Partition
 
-	fragmentCollectionMap, found := assembler.partitionFragmentCollectionMap[partition]
+	fragmentCollectionMap, found := assembler.partitionToFragmentCollectionMap[partition]
 	if !found {
 		fragmentCollectionMap = make(map[string]*kafkaMessageFragmentsCollection)
-		assembler.partitionFragmentCollectionMap[partition] = fragmentCollectionMap
+		assembler.partitionToFragmentCollectionMap[partition] = fragmentCollectionMap
 	}
 
 	fragCollection, found := fragmentCollectionMap[fragInfo.key]
+	if found && fragCollection.dismantlingTimestamp.After(fragInfo.dismantlingTimestamp) {
+		// fragment timestamp < collection timestamp got an outdated fragment
+		return nil, false
+	}
+
 	if !found || fragCollection.dismantlingTimestamp.Before(fragInfo.dismantlingTimestamp) {
-		if found {
-			// update the lowest offset record on partition if necessary
-			assembler.processDeleteOffsetOnPartition(partition, fragCollection.lowestOffset)
-		}
 		// fragmentCollection not found or is hosting outdated fragments
 		fragCollection := newKafkaMessageFragmentsCollection(fragInfo.totalSize, fragInfo.dismantlingTimestamp)
 		fragmentCollectionMap[fragInfo.key] = fragCollection
 		fragCollection.AddFragment(fragInfo)
-
 		// update the lowest offset on partition if needed
-		assembler.processNewOffsetOnPartition(partition, fragCollection.lowestOffset)
+		assembler.addOffsetToPartition(partition, fragCollection.lowestOffset)
 
-		return
-	} else if fragCollection.dismantlingTimestamp.After(fragInfo.dismantlingTimestamp) {
-		// fragment timestamp < collection timestamp got an outdated fragment
-		return
+		return nil, false
 	}
 
 	// collection exists and the received fragment package should be added
@@ -92,77 +51,73 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 
 	// check if got all and assemble
 	if fragCollection.totalMessageSize == fragCollection.accumulatedFragmentsSize {
-		assembler.assembleAndForwardCollection(fragInfo.key, fragCollection)
+		return assembler.assembleAndForwardCollection(fragInfo.key, fragCollection), true
 	}
+
+	return nil, false
 }
 
 func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
-	collection *kafkaMessageFragmentsCollection) {
-	assembledBundle, _ := collection.Assemble() // no error because checked assembling size requirement
-	collection.latestKafkaMessage.Value = assembledBundle
+	collection *kafkaMessageFragmentsCollection) *kafka.Message {
+	assembledBundle, _ := collection.Assemble()           // no error because checked assembling size requirement
+	collection.latestKafkaMessage.Value = assembledBundle // hijack message with the highest offset
 	partition := collection.latestKafkaMessage.TopicPartition.Partition
 
 	// delete collection from map
-	delete(assembler.partitionFragmentCollectionMap[partition], key)
+	delete(assembler.partitionToFragmentCollectionMap[partition], key)
 	// delete collection map if emptied
-	if len(assembler.partitionFragmentCollectionMap[partition]) == 0 {
-		delete(assembler.partitionFragmentCollectionMap, partition)
+	if len(assembler.partitionToFragmentCollectionMap[partition]) == 0 {
+		delete(assembler.partitionToFragmentCollectionMap, partition)
 	}
 
 	// update message offset: set it to that of the lowest (incomplete) collection's offset on partition, or to this
-	// collection's highest offset if it is the lowest on partition (default)
+	// collection's highest offset if it is the lowest on partition
 	if lowestOffset := assembler.partitionLowestOffsetMap[partition]; lowestOffset != collection.lowestOffset {
 		collection.latestKafkaMessage.TopicPartition.Offset = lowestOffset
 	} else {
 		// update partition offset cache map
-		assembler.processDeleteOffsetOnPartition(partition, collection.lowestOffset)
+		assembler.deleteOffsetOnPartition(partition, collection.lowestOffset)
 	}
 
-	// forward assembled bundle onwards (it has fragmented key identifier but complete content)
-	go func() {
-		assembler.msgChan <- collection.latestKafkaMessage
-	}()
-
-	assembler.log.Info("assembled and forwarded fragments collection",
-		"collection key", key,
-		"collection size (bytes)", collection.totalMessageSize,
-		"fragments count", len(collection.messageFragments))
+	// give back the assembled message to be forwarded by the consumer
+	return collection.latestKafkaMessage
 }
 
-// FixMessageOffset corrects the offset of the received message so that it does not allow for unsafe committing.
+// fixMessageOffset corrects the offset of the received message so that it does not allow for unsafe committing.
 func (assembler *kafkaMessageAssembler) fixMessageOffset(msg *kafka.Message) {
-	assembler.lock.Lock()
-	defer assembler.lock.Unlock()
-
 	partition := msg.TopicPartition.Partition
 
 	lowestOffsetOnPartition, found := assembler.partitionLowestOffsetMap[partition]
 	if !found {
-		// no collection on map
+		// no open fragments sequence on partition
 		return
 	}
 	// fix offset so that it does not allow for unsafe committing after processing.
 	msg.TopicPartition.Offset = lowestOffsetOnPartition
 }
 
-// processNewOffsetOnPartition sets the partition's lowest offset to the given offset if it is.
-func (assembler *kafkaMessageAssembler) processNewOffsetOnPartition(partition int32, offset kafka.Offset) {
-	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; !found || offset < lowestOffset {
-		assembler.partitionLowestOffsetMap[partition] = offset
+// addOffsetToPartition sets the partition's lowest offset to the given offset if it is.
+func (assembler *kafkaMessageAssembler) addOffsetToPartition(partition int32, offset kafka.Offset) {
+	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; found && offset >= lowestOffset {
+		return // there already is a lower offset mapped on this partition, do nothing for now
 	}
+
+	assembler.partitionLowestOffsetMap[partition] = offset
 }
 
-// processDeleteOffsetOnPartition updates the partition -> lowest offset mapping if the offset received is the lowest
+// deleteOffsetOnPartition updates the partition -> the lowest offset mapping if the offset received is the lowest
 // on the given partition. The new lowest offset is calculated and set if found, otherwise the mapping is deleted.
-func (assembler *kafkaMessageAssembler) processDeleteOffsetOnPartition(partition int32, offset kafka.Offset) {
-	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; found && offset == lowestOffset {
-		// update new offset
-		if lowestOffset := assembler.findLowestOffsetOnPartition(partition); lowestOffset < 0 {
-			// no open sequence left on partition
-			delete(assembler.partitionLowestOffsetMap, partition)
-		} else {
-			assembler.partitionLowestOffsetMap[partition] = lowestOffset
-		}
+func (assembler *kafkaMessageAssembler) deleteOffsetOnPartition(partition int32, offset kafka.Offset) {
+	if lowestOffset, found := assembler.partitionLowestOffsetMap[partition]; !found || offset != lowestOffset {
+		return // not used in mapping
+	}
+
+	// update new offset
+	if lowestOffset := assembler.findLowestOffsetOnPartition(partition); lowestOffset < 0 {
+		// no open sequence left on partition
+		delete(assembler.partitionLowestOffsetMap, partition)
+	} else {
+		assembler.partitionLowestOffsetMap[partition] = lowestOffset
 	}
 }
 
@@ -170,7 +125,7 @@ func (assembler *kafkaMessageAssembler) processDeleteOffsetOnPartition(partition
 func (assembler *kafkaMessageAssembler) findLowestOffsetOnPartition(partition int32) kafka.Offset {
 	var lowest kafka.Offset = math.MaxInt64
 
-	if collectionMap, found := assembler.partitionFragmentCollectionMap[partition]; found {
+	if collectionMap, found := assembler.partitionToFragmentCollectionMap[partition]; found {
 		for _, collection := range collectionMap {
 			if collection.lowestOffset < lowest {
 				lowest = collection.lowestOffset
