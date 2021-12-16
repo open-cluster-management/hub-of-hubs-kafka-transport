@@ -51,13 +51,13 @@ func (assembler *kafkaMessageAssembler) processFragmentInfo(fragInfo *kafkaMessa
 
 	// check if got all and assemble
 	if fragCollection.totalMessageSize == fragCollection.accumulatedFragmentsSize {
-		return assembler.assembleAndForwardCollection(fragInfo.key, fragCollection), true
+		return assembler.assembleCollection(fragInfo.key, fragCollection), true
 	}
 
 	return nil, false
 }
 
-func (assembler *kafkaMessageAssembler) assembleAndForwardCollection(key string,
+func (assembler *kafkaMessageAssembler) assembleCollection(key string,
 	collection *kafkaMessageFragmentsCollection) *kafka.Message {
 	assembledBundle, _ := collection.Assemble()           // no error because checked assembling size requirement
 	collection.latestKafkaMessage.Value = assembledBundle // hijack message with the highest offset
