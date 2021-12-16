@@ -3,11 +3,11 @@ package kafkaproducer
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client/kafka-producer/mssage-builder"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 	kafkaheaders "github.com/open-cluster-management/hub-of-hubs-kafka-transport/headers"
+	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client/kafka-producer/builder"
 )
 
 const (
@@ -70,7 +70,7 @@ func (producer *KafkaProducer) ProduceAsync(key string, topic string, partition 
 func (producer *KafkaProducer) getMessageFragments(key string, topic *string, partition int32, headers []kafka.Header,
 	payload []byte) []*kafka.Message {
 	if len(payload) <= producer.messageSizeLimit {
-		return []*kafka.Message{mssage_builder.NewMessageBuilder(key, topic, partition, headers, payload).Build()}
+		return []*kafka.Message{builder.NewMessageBuilder(key, topic, partition, headers, payload).Build()}
 	}
 	// else, message size is above the limit. need to split the message into fragments.
 	chunks := producer.splitPayloadIntoChunks(payload)
@@ -78,7 +78,8 @@ func (producer *KafkaProducer) getMessageFragments(key string, topic *string, pa
 	fragmentationTimestamp := time.Now().Format(time.RFC3339)
 
 	for i, chunk := range chunks {
-		messageFragments[i] = mssage_builder.NewMessageBuilder(fmt.Sprintf("%s_%d", key, i), topic, partition, headers, chunk).
+		messageFragments[i] = builder.NewMessageBuilder(fmt.Sprintf("%s_%d", key, i), topic, partition, headers,
+			chunk).
 			Header(kafka.Header{
 				Key: kafkaheaders.Size, Value: toByteArray(len(payload)),
 			}).
