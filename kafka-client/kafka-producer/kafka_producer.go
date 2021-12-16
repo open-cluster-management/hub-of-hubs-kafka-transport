@@ -114,7 +114,7 @@ func (producer *KafkaProducer) splitPayloadIntoChunks(payload []byte) [][]byte {
 
 func toByteArray(i int) []byte {
 	arr := make([]byte, intSize)
-	binary.BigEndian.PutUint32(arr[0:4], uint32(i))
+	binary.BigEndian.PutUint32(arr[0:intSize], uint32(i))
 
 	return arr
 }

@@ -43,36 +43,36 @@ type KafkaConsumer struct {
 }
 
 // Close closes the KafkaConsumer.
-func (c *KafkaConsumer) Close() {
-	c.stopChan <- struct{}{}
-	close(c.stopChan)
-	_ = c.kafkaConsumer.Close()
+func (consumer *KafkaConsumer) Close() {
+	consumer.stopChan <- struct{}{}
+	close(consumer.stopChan)
+	_ = consumer.kafkaConsumer.Close()
 }
 
-// Consumer returns the wrapped Confluent KafkaConsumer member.
-func (c *KafkaConsumer) Consumer() *kafka.Consumer {
-	return c.kafkaConsumer
+// Consumer returns the wrapped Confluent KafkaConsumer.
+func (consumer *KafkaConsumer) Consumer() *kafka.Consumer {
+	return consumer.kafkaConsumer
 }
 
-// Subscribe starts subscription to the set topic.
-func (c *KafkaConsumer) Subscribe(topic string) error {
-	if err := c.kafkaConsumer.SubscribeTopics([]string{topic}, nil); err != nil {
+// Subscribe subscribes consumer to the given topic.
+func (consumer *KafkaConsumer) Subscribe(topic string) error {
+	if err := consumer.kafkaConsumer.SubscribeTopics([]string{topic}, nil); err != nil {
 		return fmt.Errorf("failed to subscribe to topic - %w", err)
 	}
 
-	c.log.Info("started listening", "topic", topic)
+	consumer.log.Info("started listening", "topic", topic)
 
 	go func() {
 		for {
 			select {
-			case <-c.stopChan:
-				_ = c.kafkaConsumer.Unsubscribe()
-				c.log.Info("stopped listening", "topic", topic)
+			case <-consumer.stopChan:
+				_ = consumer.kafkaConsumer.Unsubscribe()
+				consumer.log.Info("stopped listening", "topic", topic)
 
 				return
 
 			default:
-				c.pollMessage()
+				consumer.pollMessage()
 			}
 		}
 	}()
@@ -80,50 +80,50 @@ func (c *KafkaConsumer) Subscribe(topic string) error {
 	return nil
 }
 
-func (c *KafkaConsumer) pollMessage() {
-	ev := c.kafkaConsumer.Poll(pollTimeoutMs)
-	if ev == nil {
+func (consumer *KafkaConsumer) pollMessage() {
+	event := consumer.kafkaConsumer.Poll(pollTimeoutMs)
+	if event == nil {
 		return
 	}
 
-	switch msg := ev.(type) {
+	switch msg := event.(type) {
 	case *kafka.Message:
-		fragment, msgIsFragment := c.messageIsFragment(msg)
+		fragment, msgIsFragment := consumer.messageIsFragment(msg)
 		if !msgIsFragment {
 			// fix offset in-case msg landed on a partition with open fragment collections
-			c.messageAssembler.fixMessageOffset(msg)
-			c.msgChan <- msg
+			consumer.messageAssembler.fixMessageOffset(msg)
+			consumer.msgChan <- msg
 
 			return
 		}
 
 		// wrap in fragment-info
-		fragInfo, err := c.createFragmentInfo(msg, fragment)
+		fragInfo, err := consumer.createFragmentInfo(msg, fragment)
 		if err != nil {
-			c.log.Error(err, "failed to read message", "topic", msg.TopicPartition.Topic)
+			consumer.log.Error(err, "failed to read message", "topic", msg.TopicPartition.Topic)
 			return
 		}
 
-		if assembledMessage, assembled := c.messageAssembler.processFragmentInfo(fragInfo); assembled {
-			c.msgChan <- assembledMessage
+		if assembledMessage, assembled := consumer.messageAssembler.processFragmentInfo(fragInfo); assembled {
+			consumer.msgChan <- assembledMessage
 		}
 	case kafka.Error:
-		c.log.Info("kafka read error", "code", msg.Code(), "error", msg.Error())
+		consumer.log.Info("kafka read error", "code", msg.Code(), "error", msg.Error())
 	}
 }
 
 // Commit commits a kafka message.
-func (c *KafkaConsumer) Commit(msg *kafka.Message) error {
-	if _, err := c.kafkaConsumer.CommitMessage(msg); err != nil {
+func (consumer *KafkaConsumer) Commit(msg *kafka.Message) error {
+	if _, err := consumer.kafkaConsumer.CommitMessage(msg); err != nil {
 		return fmt.Errorf("failed to commit - %w", err)
 	}
 
 	return nil
 }
 
-func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFragment, bool) {
-	offsetHeader, offsetFound := c.lookupHeader(msg, kafkaheaders.Offset)
-	_, sizeFound := c.lookupHeader(msg, kafkaheaders.Size)
+func (consumer *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFragment, bool) {
+	offsetHeader, offsetFound := consumer.lookupHeader(msg, kafkaheaders.Offset)
+	_, sizeFound := consumer.lookupHeader(msg, kafkaheaders.Size)
 
 	if !(offsetFound && sizeFound) {
 		return nil, false
@@ -135,7 +135,7 @@ func (c *KafkaConsumer) messageIsFragment(msg *kafka.Message) (*kafkaMessageFrag
 	}, true
 }
 
-func (c *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kafka.Header, bool) {
+func (consumer *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kafka.Header, bool) {
 	for _, header := range msg.Headers {
 		if header.Key == headerKey {
 			return &header, true
@@ -145,24 +145,24 @@ func (c *KafkaConsumer) lookupHeader(msg *kafka.Message, headerKey string) (*kaf
 	return nil, false
 }
 
-func (c *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
+func (consumer *KafkaConsumer) createFragmentInfo(msg *kafka.Message,
 	fragment *kafkaMessageFragment) (*kafkaMessageFragmentInfo, error) {
-	msgIDHeader, found := c.lookupHeader(msg, types.MsgIDKey)
+	msgIDHeader, found := consumer.lookupHeader(msg, types.MsgIDKey)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgIDKey)
 	}
 
-	msgTypeHeader, found := c.lookupHeader(msg, types.MsgTypeKey)
+	msgTypeHeader, found := consumer.lookupHeader(msg, types.MsgTypeKey)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, types.MsgTypeKey)
 	}
 
-	timestampHeader, found := c.lookupHeader(msg, kafkaheaders.FragmentationTimestamp)
+	timestampHeader, found := consumer.lookupHeader(msg, kafkaheaders.FragmentationTimestamp)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.FragmentationTimestamp)
 	}
 
-	sizeHeader, found := c.lookupHeader(msg, kafkaheaders.Size)
+	sizeHeader, found := consumer.lookupHeader(msg, kafkaheaders.Size)
 	if !found {
 		return nil, fmt.Errorf("%w : header key - %s", errHeaderNotFound, kafkaheaders.Size)
 	}
