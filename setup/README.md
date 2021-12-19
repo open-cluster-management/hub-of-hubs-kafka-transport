@@ -8,46 +8,58 @@
 
 ## Setup
 To set up a Kafka cluster we use the Red Hat Integration - AMQ Streams operator (v1.7.2) to install Kafka v2.7.0
-on the ACM cluster (easily done via Red Hat OpenShift Container Platform - Administrator view).
+on the ACM cluster.
 
-### Step 1
-Once the operator is installed, head to "Kafka" tab and create a new instance.
+### Namespace
+Create *kafka* namespace:
+```
+kubectl create namespace kafka
+```
 
-### Step 2
-Name your cluster **"kafka-brokers-cluster"** and expand the Kafka -> Listeners tab:
-* Keep the first default listener for inter-cluster connections.
-  * { name = plain, port = 9092, TLS disabled, type = internal }
-* Change the second default listener's type to "route" to be used for external connections.
-  * { name = tls, port = 9093, TLS enabled, type = route }
+### AMQ Streams Operator
+Deploy the AMQ streams operator to your cluster (subscription watches kafka namespace):
+```
+kubectl -n kafka apply -f deployment/amq_streams_operator.yaml
+```
 
-You may change any of the above / further configure the cluster following 
-[Using AMQ Streams on OpenShift](https://access.redhat.com/documentation/en-us/red_hat_amq/7.7/html-single/using_amq_streams_on_openshift/index).
+### Kafka Cluster
+Deploy the cluster's CR
+```
+kubectl -n kafka apply -f deployment/kafka_cluster.yaml
+```
 
-### Step 3
-Create the cluster and wait for the status to be updated, fetch (cluster YAML):
-* status -> listeners -> bootstrapServers:
-    ```
-    listeners:
-    - addresses:
-        - host: kafka-brokers-cluster-kafka-bootstrap.kafka.svc
-          port: 9092
-      bootstrapServers: 'kafka-brokers-cluster-kafka-bootstrap.kafka.svc:9092'
-      type: plain
-    - addresses:
-        - host: >-
-            kafka-brokers-cluster-kafka-tls-bootstrap-kafka.apps.veisenbe-hoh2.dev10.red-chesterfield.com
-          port: 443
-      bootstrapServers: >-
-        kafka-brokers-cluster-kafka-tls-bootstrap-kafka.apps.veisenbe-hoh2.dev10.red-chesterfield.com:443
-      certificates:
-        - |
-          -----BEGIN CERTIFICATE-----
-          ...
-          -----END CERTIFICATE-----
-      type: tls
-    ```
+Results:
+* AMQ Streams operator running and watching kafka namespace
+* Kafka instance "kafka-brokers-cluster" deployed:
+  * 3 broker pods
+  * 3 zookeeper pods
+  * an internal plaintext listener (port 9092)
+  * an external TLS secure listener (port 9093)
+  * status Topic deployed
+  * spec Topic deployed
   
-the bootstrapServers associated with the plain listener should be used for internal connections, 
-such as producers/consumers that are deployed on the same ACM hub (e.g. for the components hub-of-hubs-...-transport-bridge), 
-while the TLS listener should be used (with the certificate) for connections external to the 
-cluster (e.g. for the components leaf-hub-...-sync).
+### Get servers/certificates for other components to connect
+Run the following command to fetch the required information:
+```
+kubectl -n kafka get Kafka kafka-brokers-cluster -o json | jq -r '.status.listeners[] | {bootstrapServers, certificates}' | sed 's/\\n/\n/g'
+```
+Output:
+```
+{
+  "bootstrapServers": "kafka-brokers-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092",
+  "certificates": null
+}
+{
+  "bootstrapServers": "kafka-brokers-cluster-kafka-external-bootstrap-kafka.apps.veisenbe-hoh2.dev10.red-chesterfield.com:443",
+  "certificates": [
+  "-----BEGIN CERTIFICATE-----
+  ...
+  -----END CERTIFICATE-----
+  "
+  ]
+}
+```
+  
+The first entry should be used for clients deployed in the cluster (unsecure connection).
+
+The second entry should be used for clients deployed outside the cluster (TLS protected).
