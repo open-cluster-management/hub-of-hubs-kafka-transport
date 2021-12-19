@@ -36,24 +36,21 @@ Helpful links:
 To set up a Kafka cluster we use the Red Hat Integration - AMQ Streams operator (v1.7.2) to install Kafka v2.7.0
 on the ACM cluster.
 
-#### Namespace
-Create *kafka* namespace:
-```
-kubectl create namespace kafka
-```
+1.  Create *kafka* namespace:
+    ```
+    kubectl create namespace kafka
+    ```
 
-#### AMQ Streams Operator
-Deploy the AMQ streams operator to your cluster (subscription watches kafka namespace):
-```
-kubectl -n kafka apply -f deploy/amq_streams_operator.yaml
-```
+1.  Deploy the AMQ streams operator to your cluster (subscription watches kafka namespace):
+    ```
+    kubectl -n kafka apply -f deploy/amq_streams_operator.yaml
+    ```
 
-#### Kafka Cluster
-Deploy the cluster's CR
-```
-kubectl -n kafka apply -f deploy/kafka_cluster.yaml
-```
-
+1.  Deploy Kafka Cluster CR
+    ```
+    kubectl -n kafka apply -f deploy/kafka_cluster.yaml
+    ```
+    
 Results:
 * AMQ Streams operator running and watching kafka namespace
 * Kafka instance "kafka-brokers-cluster" deployed:
