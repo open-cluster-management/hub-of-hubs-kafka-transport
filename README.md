@@ -43,12 +43,12 @@ on the ACM cluster.
 
 1.  Deploy the AMQ streams operator to your cluster (subscription watches kafka namespace):
     ```
-    kubectl -n kafka apply -f deploy/amq_streams_operator.yaml
+    kubectl apply -f deploy/amq_streams_operator.yaml
     ```
 
 1.  Deploy Kafka Cluster CR
     ```
-    kubectl -n kafka apply -f deploy/kafka_cluster.yaml
+    kubectl apply -f deploy/kafka_cluster.yaml
     ```
     
 Results:
