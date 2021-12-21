@@ -49,33 +49,8 @@ spec:
     storage:
       type: ephemeral
   entityOperator:
-    tlsSidecar:
-      resources:
-        limits:
-          cpu: 500m
-          memory: 128Mi
-    topicOperator:
-      watchedNamespace: kafka
-      reconciliationIntervalSeconds: 60
-      logging:
-        type: inline
-        loggers:
-          rootLogger.level: "INFO"
-      resources:
-        limits:
-          memory: 512Mi
-          cpu: "1"
-    userOperator:
-      watchedNamespace: kafka
-      reconciliationIntervalSeconds: 60
-      logging:
-        type: inline
-        loggers:
-          rootLogger.level: INFO
-      resources:
-        limits:
-          memory: 512Mi
-          cpu: "1"
+    topicOperator: {}
+    userOperator: {}
 ---
 
 apiVersion: kafka.strimzi.io/v1beta2
