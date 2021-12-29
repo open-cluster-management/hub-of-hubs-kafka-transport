@@ -51,7 +51,7 @@ on the ACM cluster.
     kubectl apply -f deploy/kafka_cluster.yaml
     ```
     
-Results:
+Result:
 * AMQ Streams operator running and watching kafka namespace
 * Kafka instance "kafka-brokers-cluster" deployed:
   * 3 broker pods
@@ -62,7 +62,7 @@ Results:
   * spec Topic deployed
   
 #### Get servers/certificates for other components to connect
-Run the following command to fetch the required information:
+Run the following command to fetch the required information (if it doesn't appear than cluster is still being created, need to retry again in several seconds):
 ```
 kubectl -n kafka get Kafka kafka-brokers-cluster -o json | jq -r '.status.listeners[] | {bootstrapServers, certificates}' | sed 's/\\n/\n/g'
 ```

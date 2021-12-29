@@ -64,7 +64,7 @@ spec:
   partitions: 1
   replicas: 2
   config:
-    retention.ms: 7200000
+    retention.ms: -1
     segment.bytes: 1073741824
 ---
 
@@ -79,6 +79,6 @@ spec:
   partitions: 1
   replicas: 2
   config:
-    retention.ms: 7200000
+    retention.ms: -1
     segment.bytes: 1073741824
 
