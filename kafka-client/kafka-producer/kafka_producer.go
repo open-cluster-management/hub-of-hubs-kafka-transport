@@ -77,14 +77,14 @@ func (producer *KafkaProducer) getMessageFragments(key string, topic *string, pa
 	messageFragments := make([]*kafka.Message, len(chunks))
 	fragmentationTimestamp := time.Now().Format(time.RFC3339)
 
-	for i, chunk := range chunks {
-		messageFragments[i] = builder.NewMessageBuilder(fmt.Sprintf("%s_%d", key, i), topic, partition, headers,
-			chunk).
+	for index, chunk := range chunks {
+		messageFragments[index] = builder.NewMessageBuilder(fmt.Sprintf("%s_%d", key, index), topic, partition,
+			headers, chunk).
 			Header(kafka.Header{
 				Key: kafkaheaders.Size, Value: toByteArray(len(payload)),
 			}).
 			Header(kafka.Header{
-				Key: kafkaheaders.Offset, Value: toByteArray(i * producer.messageSizeLimit),
+				Key: kafkaheaders.Offset, Value: toByteArray(index * producer.messageSizeLimit),
 			}).
 			Header(kafka.Header{
 				Key: kafkaheaders.FragmentationTimestamp, Value: []byte(fragmentationTimestamp),
