@@ -64,8 +64,7 @@ spec:
   partitions: 1
   replicas: 2
   config:
-    retention.ms: -1
-    segment.bytes: 1073741824
+    cleanup.policy: compact
 ---
 
 apiVersion: kafka.strimzi.io/v1beta2
@@ -79,6 +78,5 @@ spec:
   partitions: 1
   replicas: 2
   config:
-    retention.ms: -1
-    segment.bytes: 1073741824
+    cleanup.policy: compact
 
