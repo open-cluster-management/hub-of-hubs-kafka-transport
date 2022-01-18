@@ -1,4 +1,4 @@
-module github.com/open-cluster-management/hub-of-hubs-kafka-transport/apis/strimzi-operator/kafkauser
+module github.com/open-cluster-management/hub-of-hubs-kafka-transport/apis/strimzi-operator/kafka-user
 
 go 1.17
 
