@@ -47,7 +47,11 @@ type KafkaUserSpec struct {
 }
 
 // KafkaUserStatus defines the observed state of KafkaUser.
-type KafkaUserStatus struct{}
+type KafkaUserStatus struct {
+	Username string `json:"username,omitempty"`
+	// Secret is the name of `Secret` where the user credentials are stored.
+	Secret string `json:"secret,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
