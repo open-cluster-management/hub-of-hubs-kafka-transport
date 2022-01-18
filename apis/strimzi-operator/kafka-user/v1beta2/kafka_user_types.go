@@ -9,7 +9,7 @@ import (
 
 // KafkaUserAuthentication specifies the auth type required from clients identifying as the relevant KafkaUser.
 type KafkaUserAuthentication struct {
-	// only Type is needed for now.
+	// only type is needed for now.
 	// +kubebuilder:validation:Enum=tls;tls-external;scram-sha-512
 	Type string `json:"type"`
 }
