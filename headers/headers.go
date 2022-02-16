@@ -2,7 +2,7 @@ package headers
 
 const (
 	// DestinationHub is the key used for destination-hub name header.
-	DestinationHub = "source-hub"
+	DestinationHub = "destination-hub"
 	// CompressionType is the key used for compression type header.
 	CompressionType = "content-encoding"
 	// Size is the key used for total bundle size header.
