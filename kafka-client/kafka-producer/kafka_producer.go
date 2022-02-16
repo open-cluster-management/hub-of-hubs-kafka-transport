@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
-	kafkaheaders "github.com/open-cluster-management/hub-of-hubs-kafka-transport/headers"
-	"github.com/open-cluster-management/hub-of-hubs-kafka-transport/kafka-client/kafka-producer/builder"
+	kafkaheaders "github.com/stolostron/hub-of-hubs-kafka-transport/headers"
+	"github.com/stolostron/hub-of-hubs-kafka-transport/kafka-client/kafka-producer/builder"
 )
 
 const (
