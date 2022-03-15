@@ -17,7 +17,7 @@ metadata:
   name: amq-streams
   namespace: kafka
 spec:
-  channel: amq-streams-1.7.x
+  channel: amq-streams-1.8.x
   name: amq-streams 
   source: redhat-operators
   sourceNamespace: openshift-marketplace
